@@ -19,11 +19,9 @@ jobs:
           go-version: '1.22'
       - name: Fetch Frontend
         run: |
-          sudo apt-get install -y curl jq unzip zip
           curl -sSL https://api.github.com/repos/TheTNB/panel-frontend/releases/latest | jq -r ".assets[] | select(.name | contains(\"dist\")) | .browser_download_url" | xargs curl -L -o frontend.zip
-          rm -rf public
           unzip frontend.zip
-          mv dist public
+          mv dist/* embed/frontend/
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:

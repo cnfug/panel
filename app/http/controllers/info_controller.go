@@ -8,14 +8,16 @@ import (
 
 	"github.com/goravel/framework/contracts/http"
 	"github.com/goravel/framework/facades"
+	"github.com/hashicorp/go-version"
 
-	"github.com/TheTNB/panel/app/models"
-	"github.com/TheTNB/panel/internal"
-	"github.com/TheTNB/panel/internal/services"
-	"github.com/TheTNB/panel/pkg/shell"
-	"github.com/TheTNB/panel/pkg/systemctl"
-	"github.com/TheTNB/panel/pkg/tools"
-	"github.com/TheTNB/panel/pkg/types"
+	"github.com/TheTNB/panel/v2/app/models"
+	"github.com/TheTNB/panel/v2/internal"
+	"github.com/TheTNB/panel/v2/internal/services"
+	"github.com/TheTNB/panel/v2/pkg/h"
+	"github.com/TheTNB/panel/v2/pkg/shell"
+	"github.com/TheTNB/panel/v2/pkg/systemctl"
+	"github.com/TheTNB/panel/v2/pkg/tools"
+	"github.com/TheTNB/panel/v2/pkg/types"
 )
 
 type MenuItem struct {
@@ -39,7 +41,7 @@ func NewInfoController() *InfoController {
 
 // Panel 获取面板信息
 func (r *InfoController) Panel(ctx http.Context) http.Response {
-	return Success(ctx, http.Json{
+	return h.Success(ctx, http.Json{
 		"name":     r.setting.Get(models.SettingKeyName),
 		"language": facades.Config().GetString("app.locale"),
 	})
@@ -53,7 +55,7 @@ func (r *InfoController) HomePlugins(ctx http.Context) http.Response {
 		facades.Log().Request(ctx.Request()).Tags("面板", "基础信息").With(map[string]any{
 			"error": err.Error(),
 		}).Info("获取首页插件失败")
-		return ErrorSystem(ctx)
+		return h.ErrorSystem(ctx)
 	}
 
 	type pluginsData struct {
@@ -69,19 +71,19 @@ func (r *InfoController) HomePlugins(ctx http.Context) http.Response {
 		})
 	}
 
-	return Success(ctx, pluginsJson)
+	return h.Success(ctx, pluginsJson)
 }
 
 // NowMonitor 获取当前监控信息
 func (r *InfoController) NowMonitor(ctx http.Context) http.Response {
-	return Success(ctx, tools.GetMonitoringInfo())
+	return h.Success(ctx, tools.GetMonitoringInfo())
 }
 
 // SystemInfo 获取系统信息
 func (r *InfoController) SystemInfo(ctx http.Context) http.Response {
 	monitorInfo := tools.GetMonitoringInfo()
 
-	return Success(ctx, http.Json{
+	return h.Success(ctx, http.Json{
 		"os_name":       monitorInfo.Host.Platform + " " + monitorInfo.Host.PlatformVersion,
 		"uptime":        fmt.Sprintf("%.2f", float64(monitorInfo.Host.Uptime)/86400),
 		"panel_version": facades.Config().GetString("panel.version"),
@@ -188,7 +190,7 @@ func (r *InfoController) CountInfo(ctx http.Context) http.Response {
 		cronCount = -1
 	}
 
-	return Success(ctx, http.Json{
+	return h.Success(ctx, http.Json{
 		"website":  websiteCount,
 		"database": databaseCount,
 		"ftp":      ftpCount,
@@ -201,7 +203,7 @@ func (r *InfoController) InstalledDbAndPhp(ctx http.Context) http.Response {
 	var php []models.Plugin
 	err := facades.Orm().Query().Where("slug like ?", "php%").Find(&php)
 	if err != nil {
-		return ErrorSystem(ctx)
+		return h.ErrorSystem(ctx)
 	}
 
 	var mysql models.Plugin
@@ -242,7 +244,7 @@ func (r *InfoController) InstalledDbAndPhp(ctx http.Context) http.Response {
 		dbData = append(dbData, data{Value: "postgresql", Label: "PostgreSQL"})
 	}
 
-	return Success(ctx, http.Json{
+	return h.Success(ctx, http.Json{
 		"php": phpData,
 		"db":  dbData,
 	})
@@ -250,38 +252,54 @@ func (r *InfoController) InstalledDbAndPhp(ctx http.Context) http.Response {
 
 // CheckUpdate 检查面板更新
 func (r *InfoController) CheckUpdate(ctx http.Context) http.Response {
-	version := facades.Config().GetString("panel.version")
-	remote, err := tools.GetLatestPanelVersion()
+	current := facades.Config().GetString("panel.version")
+	latest, err := tools.GetLatestPanelVersion()
 	if err != nil {
-		return Error(ctx, http.StatusInternalServerError, "获取最新版本失败")
+		return h.Error(ctx, http.StatusInternalServerError, "获取最新版本失败")
 	}
 
-	if tools.VersionCompare(version, remote.Version, ">=") {
-		return Success(ctx, http.Json{
+	v1, err := version.NewVersion(current)
+	if err != nil {
+		return h.Error(ctx, http.StatusInternalServerError, "版本号解析失败")
+	}
+	v2, err := version.NewVersion(latest.Version)
+	if err != nil {
+		return h.Error(ctx, http.StatusInternalServerError, "版本号解析失败")
+	}
+	if v1.GreaterThanOrEqual(v2) {
+		return h.Success(ctx, http.Json{
 			"update": false,
 		})
 	}
 
-	return Success(ctx, http.Json{
+	return h.Success(ctx, http.Json{
 		"update": true,
 	})
 }
 
 // UpdateInfo 获取更新信息
 func (r *InfoController) UpdateInfo(ctx http.Context) http.Response {
-	version := facades.Config().GetString("panel.version")
-	current, err := tools.GetLatestPanelVersion()
+	current := facades.Config().GetString("panel.version")
+	latest, err := tools.GetLatestPanelVersion()
 	if err != nil {
-		return Error(ctx, http.StatusInternalServerError, "获取最新版本失败")
+		return h.Error(ctx, http.StatusInternalServerError, "获取最新版本失败")
 	}
 
-	if tools.VersionCompare(version, current.Version, ">=") {
-		return Error(ctx, http.StatusInternalServerError, "当前版本已是最新版本")
+	v1, err := version.NewVersion(current)
+	if err != nil {
+		return h.Error(ctx, http.StatusInternalServerError, "版本号解析失败")
+	}
+	v2, err := version.NewVersion(latest.Version)
+	if err != nil {
+		return h.Error(ctx, http.StatusInternalServerError, "版本号解析失败")
+	}
+	if v1.GreaterThanOrEqual(v2) {
+		return h.Error(ctx, http.StatusInternalServerError, "当前版本已是最新版本")
 	}
 
-	versions, err := tools.GenerateVersions(version, current.Version)
+	versions, err := tools.GenerateVersions(current, latest.Version)
 	if err != nil {
-		return Error(ctx, http.StatusInternalServerError, "获取更新信息失败")
+		return h.Error(ctx, http.StatusInternalServerError, "获取更新信息失败")
 	}
 
 	var versionInfo []tools.PanelInfo
@@ -294,18 +312,18 @@ func (r *InfoController) UpdateInfo(ctx http.Context) http.Response {
 		versionInfo = append(versionInfo, info)
 	}
 
-	return Success(ctx, versionInfo)
+	return h.Success(ctx, versionInfo)
 }
 
 // Update 更新面板
 func (r *InfoController) Update(ctx http.Context) http.Response {
 	var task models.Task
 	if err := facades.Orm().Query().Where("status", models.TaskStatusRunning).OrWhere("status", models.TaskStatusWaiting).FirstOrFail(&task); err == nil {
-		return Error(ctx, http.StatusInternalServerError, "当前有任务正在执行，禁止更新")
+		return h.Error(ctx, http.StatusInternalServerError, "当前有任务正在执行，禁止更新")
 	}
 	if _, err := facades.Orm().Query().Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
 		types.Status = types.StatusFailed
-		return Error(ctx, http.StatusInternalServerError, fmt.Sprintf("面板数据库异常，已终止操作：%s", err.Error()))
+		return h.Error(ctx, http.StatusInternalServerError, fmt.Sprintf("面板数据库异常，已终止操作：%s", err.Error()))
 	}
 
 	panel, err := tools.GetLatestPanelVersion()
@@ -313,7 +331,7 @@ func (r *InfoController) Update(ctx http.Context) http.Response {
 		facades.Log().Request(ctx.Request()).Tags("面板", "基础信息").With(map[string]any{
 			"error": err.Error(),
 		}).Info("获取最新版本失败")
-		return Error(ctx, http.StatusInternalServerError, "获取最新版本失败")
+		return h.Error(ctx, http.StatusInternalServerError, "获取最新版本失败")
 	}
 
 	types.Status = types.StatusUpgrade
@@ -322,12 +340,12 @@ func (r *InfoController) Update(ctx http.Context) http.Response {
 		facades.Log().Request(ctx.Request()).Tags("面板", "基础信息").With(map[string]any{
 			"error": err.Error(),
 		}).Info("更新面板失败")
-		return Error(ctx, http.StatusInternalServerError, err.Error())
+		return h.Error(ctx, http.StatusInternalServerError, err.Error())
 	}
 
 	types.Status = types.StatusNormal
 	tools.RestartPanel()
-	return Success(ctx, nil)
+	return h.Success(ctx, nil)
 }
 
 // Restart 重启面板
@@ -335,9 +353,9 @@ func (r *InfoController) Restart(ctx http.Context) http.Response {
 	var task models.Task
 	err := facades.Orm().Query().Where("status", models.TaskStatusRunning).OrWhere("status", models.TaskStatusWaiting).FirstOrFail(&task)
 	if err == nil {
-		return Error(ctx, http.StatusInternalServerError, "当前有任务正在执行，禁止重启")
+		return h.Error(ctx, http.StatusInternalServerError, "当前有任务正在执行，禁止重启")
 	}
 
 	tools.RestartPanel()
-	return Success(ctx, nil)
+	return h.Success(ctx, nil)
 }

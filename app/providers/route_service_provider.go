@@ -6,12 +6,11 @@ import (
 	"github.com/goravel/framework/facades"
 	"github.com/goravel/framework/http/limit"
 
-	"github.com/TheTNB/panel/app/http"
-	"github.com/TheTNB/panel/routes"
+	"github.com/TheTNB/panel/v2/app/http"
+	"github.com/TheTNB/panel/v2/routes"
 )
 
-type RouteServiceProvider struct {
-}
+type RouteServiceProvider struct{}
 
 func (receiver *RouteServiceProvider) Register(app foundation.Application) {
 }

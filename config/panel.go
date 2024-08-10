@@ -7,8 +7,9 @@ import (
 func init() {
 	config := facades.Config()
 	config.Add("panel", map[string]any{
-		"name":    "耗子面板",
-		"version": "v2.2.19",
-		"ssl":     config.Env("APP_SSL", false),
+		"name":     "耗子面板",
+		"version":  "v2.2.27",
+		"ssl":      config.Env("APP_SSL", false),
+		"entrance": config.Env("APP_ENTRANCE", "/"),
 	})
 }

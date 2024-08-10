@@ -15,15 +15,15 @@ import (
 	"github.com/goravel/framework/support/color"
 	"github.com/spf13/cast"
 
-	requests "github.com/TheTNB/panel/app/http/requests/website"
-	"github.com/TheTNB/panel/app/models"
-	"github.com/TheTNB/panel/internal/services"
-	"github.com/TheTNB/panel/pkg/io"
-	"github.com/TheTNB/panel/pkg/shell"
-	"github.com/TheTNB/panel/pkg/str"
-	"github.com/TheTNB/panel/pkg/systemctl"
-	"github.com/TheTNB/panel/pkg/tools"
-	"github.com/TheTNB/panel/pkg/types"
+	requests "github.com/TheTNB/panel/v2/app/http/requests/website"
+	"github.com/TheTNB/panel/v2/app/models"
+	"github.com/TheTNB/panel/v2/internal/services"
+	"github.com/TheTNB/panel/v2/pkg/io"
+	"github.com/TheTNB/panel/v2/pkg/shell"
+	"github.com/TheTNB/panel/v2/pkg/str"
+	"github.com/TheTNB/panel/v2/pkg/systemctl"
+	"github.com/TheTNB/panel/v2/pkg/tools"
+	"github.com/TheTNB/panel/v2/pkg/types"
 )
 
 // Panel 面板命令行
@@ -165,8 +165,8 @@ func (receiver *Panel) Handle(ctx console.Context) error {
 		color.Green().Printfln(translate.Get("commands.panel.getInfo.username") + ": " + user.Username)
 		color.Green().Printfln(translate.Get("commands.panel.getInfo.password") + ": " + password)
 		color.Green().Printfln(translate.Get("commands.panel.port") + ": " + port)
-		color.Green().Printfln(translate.Get("commands.panel.entrance") + ": " + facades.Config().GetString("http.entrance"))
-		color.Green().Printfln(translate.Get("commands.panel.getInfo.address") + ": " + protocol + "://" + ip + ":" + port + facades.Config().GetString("http.entrance"))
+		color.Green().Printfln(translate.Get("commands.panel.entrance") + ": " + facades.Config().GetString("panel.entrance"))
+		color.Green().Printfln(translate.Get("commands.panel.getInfo.address") + ": " + protocol + "://" + ip + ":" + port + facades.Config().GetString("panel.entrance"))
 
 	case "getPort":
 		port, err := shell.Execf(`cat /www/panel/panel.conf | grep APP_PORT | awk -F '=' '{print $2}' | tr -d '\n'`)
@@ -178,7 +178,7 @@ func (receiver *Panel) Handle(ctx console.Context) error {
 		color.Green().Printfln(translate.Get("commands.panel.port") + ": " + port)
 
 	case "getEntrance":
-		color.Green().Printfln(translate.Get("commands.panel.entrance") + ": " + facades.Config().GetString("http.entrance"))
+		color.Green().Printfln(translate.Get("commands.panel.entrance") + ": " + facades.Config().GetString("panel.entrance"))
 
 	case "deleteEntrance":
 		oldEntrance, err := shell.Execf(`cat /www/panel/panel.conf | grep APP_ENTRANCE | awk -F '=' '{print $2}' | tr -d '\n'`)
@@ -506,8 +506,8 @@ func (receiver *Panel) Handle(ctx console.Context) error {
 			Name:   name,
 			Status: status,
 			Path:   path,
-			Php:    php,
-			Ssl:    ssl,
+			PHP:    php,
+			SSL:    ssl,
 		})
 		if err != nil {
 			color.Red().Printfln(translate.Get("commands.panel.writeSite.fail"))
@@ -615,15 +615,13 @@ func (receiver *Panel) Handle(ctx console.Context) error {
 			return nil
 		}
 
-		_, err = website.Add(types.WebsiteAdd{
+		_, err = website.Add(requests.Add{
 			Name:    name,
-			Status:  true,
 			Domains: domains,
 			Ports:   uintPorts,
 			Path:    path,
-			Php:     php,
-			Ssl:     false,
-			Db:      false,
+			PHP:     php,
+			DB:      false,
 		})
 		if err != nil {
 			color.Red().Printfln(err.Error())
