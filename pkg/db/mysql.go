@@ -3,10 +3,11 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"slices"
 
 	_ "github.com/go-sql-driver/mysql"
 
-	"github.com/TheTNB/panel/v2/pkg/types"
+	"github.com/TheTNB/panel/pkg/types"
 )
 
 type MySQL struct {
@@ -23,10 +24,10 @@ func NewMySQL(username, password, address string, typ ...string) (*MySQL, error)
 	}
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("初始化MySQL连接失败: %w", err)
+		return nil, fmt.Errorf("init mysql connection failed: %w", err)
 	}
-	if db.Ping() != nil {
-		return nil, fmt.Errorf("连接MySQL失败: %w", err)
+	if err = db.Ping(); err != nil {
+		return nil, fmt.Errorf("connect to mysql failed: %w", err)
 	}
 	return &MySQL{
 		db:       db,
@@ -70,6 +71,31 @@ func (m *MySQL) DatabaseDrop(name string) error {
 	_, err := m.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", name))
 	m.flushPrivileges()
 	return err
+}
+
+func (m *MySQL) DatabaseExists(name string) (bool, error) {
+	rows, err := m.Query("SHOW DATABASES")
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var database string
+		if err := rows.Scan(&database); err != nil {
+			continue
+		}
+		if database == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (m *MySQL) DatabaseSize(name string) (int64, error) {
+	var size int64
+	err := m.QueryRow(fmt.Sprintf("SELECT COALESCE(SUM(data_length) + SUM(index_length), 0) FROM information_schema.tables WHERE table_schema = '%s'", name)).Scan(&size)
+	return size, err
 }
 
 func (m *MySQL) UserCreate(user, password string) error {
@@ -141,6 +167,9 @@ func (m *MySQL) Databases() ([]types.MySQLDatabase, error) {
 	for rows.Next() {
 		var database string
 		if err := rows.Scan(&database); err != nil {
+			continue
+		}
+		if slices.Contains([]string{"information_schema", "performance_schema", "mysql", "sys"}, database) {
 			continue
 		}
 		databases = append(databases, types.MySQLDatabase{

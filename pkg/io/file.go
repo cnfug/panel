@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mholt/archiver/v3"
+	"github.com/TheTNB/panel/pkg/chattr"
 )
 
 // Write 写入文件
@@ -14,17 +14,24 @@ func Write(path string, data string, permission os.FileMode) error {
 		return err
 	}
 
-	err := os.WriteFile(path, []byte(data), permission)
-	if err != nil {
-		return err
+	iFlag, aFlag := false, false
+	file, err := os.OpenFile(path, os.O_RDONLY, permission)
+	if err == nil {
+		iFlag, _ = chattr.IsAttr(file, chattr.FS_IMMUTABLE_FL)
+		aFlag, _ = chattr.IsAttr(file, chattr.FS_APPEND_FL)
+		if iFlag {
+			_ = chattr.UnsetAttr(file, chattr.FS_IMMUTABLE_FL)
+		}
+		if aFlag {
+			_ = chattr.UnsetAttr(file, chattr.FS_APPEND_FL)
+		}
+
+		// 关闭文件重新以写入方式打开
+		if err = file.Close(); err != nil {
+			return err
+		}
 	}
-
-	return nil
-}
-
-// WriteAppend 追加写入文件
-func WriteAppend(path string, data string) error {
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	file, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, permission)
 	if err != nil {
 		return err
 	}
@@ -33,6 +40,46 @@ func WriteAppend(path string, data string) error {
 	_, err = file.WriteString(data)
 	if err != nil {
 		return err
+	}
+
+	if iFlag {
+		_ = chattr.SetAttr(file, chattr.FS_IMMUTABLE_FL)
+	}
+	if aFlag {
+		_ = chattr.SetAttr(file, chattr.FS_APPEND_FL)
+	}
+
+	return nil
+}
+
+// WriteAppend 追加写入文件
+func WriteAppend(path string, data string, permission os.FileMode) error {
+	iFlag := false
+	file, err := os.OpenFile(path, os.O_RDONLY, permission)
+	if err == nil {
+		iFlag, _ = chattr.IsAttr(file, chattr.FS_IMMUTABLE_FL)
+		if iFlag {
+			_ = chattr.UnsetAttr(file, chattr.FS_IMMUTABLE_FL)
+		}
+
+		// 关闭文件重新以写入方式打开
+		if err = file.Close(); err != nil {
+			return err
+		}
+	}
+	file, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, permission)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = file.WriteString(data)
+	if err != nil {
+		return err
+	}
+
+	if iFlag {
+		_ = chattr.SetAttr(file, chattr.FS_IMMUTABLE_FL)
 	}
 
 	return nil
@@ -47,21 +94,6 @@ func Read(path string) (string, error) {
 // FileInfo 获取文件大小
 func FileInfo(path string) (os.FileInfo, error) {
 	return os.Stat(path)
-}
-
-// UnArchive 智能解压文件
-func UnArchive(file string, dst string) error {
-	return archiver.Unarchive(file, dst)
-}
-
-// Archive 智能压缩文件
-func Archive(src []string, dst string) error {
-	return archiver.Archive(src, dst)
-}
-
-// TempFile 创建临时文件
-func TempFile(prefix string) (*os.File, error) {
-	return os.CreateTemp("", prefix)
 }
 
 // IsSymlink 判读是否为软链接
@@ -82,4 +114,9 @@ func GetSymlink(path string) string {
 		return ""
 	}
 	return linkPath
+}
+
+// TempFile 创建临时文件
+func TempFile(dir, prefix string) (*os.File, error) {
+	return os.CreateTemp(dir, prefix)
 }

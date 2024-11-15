@@ -12,16 +12,16 @@ import (
 
 	"github.com/mholt/acmez/v2"
 	"github.com/mholt/acmez/v2/acme"
-	"go.uber.org/zap"
 
-	"github.com/TheTNB/panel/v2/pkg/cert"
+	"github.com/TheTNB/panel/pkg/cert"
 )
 
 const (
+	CAGoogleCN           = "https://gts.rat.dev/directory"
+	CAGoogle             = "https://dv.acme-v02.api.pki.goog/directory"
 	CALetsEncryptStaging = "https://acme-staging-v02.api.letsencrypt.org/directory"
 	CALetsEncrypt        = "https://acme-v02.api.letsencrypt.org/directory"
 	CAZeroSSL            = "https://acme.zerossl.com/v2/DV90"
-	CAGoogle             = "https://dv.acme-v02.api.pki.goog/directory"
 	CABuypass            = "https://api.buypass.com/acme/directory"
 	CASSLcom             = "https://acme.ssl.com/sslcom-dv-rsa"
 )
@@ -117,16 +117,10 @@ func generatePrivateKey(keyType KeyType) (crypto.Signer, error) {
 }
 
 func getClient(CA string) (acmez.Client, error) {
-	logger, err := zap.NewProduction()
-	if err != nil {
-		return acmez.Client{}, err
-	}
-
 	client := acmez.Client{
 		Client: &acme.Client{
 			Directory:  CA,
 			HTTPClient: http.DefaultClient,
-			Logger:     logger,
 		},
 	}
 

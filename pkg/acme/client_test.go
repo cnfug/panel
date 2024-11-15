@@ -20,9 +20,9 @@ func (s *ClientTestSuite) TestObtainSSL() {
 	client, err := NewRegisterAccount(ctx, "ci@haozi.net", CALetsEncryptStaging, nil, KeyEC256)
 	s.Nil(err)
 
-	client.UseDns(DnsPod, DNSParam{
-		ID:    "123456",
-		Token: "654321",
+	client.UseDns(AliYun, DNSParam{
+		AK: "123456",
+		SK: "654321",
 	})
 
 	/*client.UseManualDns(2)
@@ -34,8 +34,8 @@ func (s *ClientTestSuite) TestObtainSSL() {
 
 	time.Sleep(2 * time.Minute)
 
-	ssl, err := client.ObtainSSLManual()*/
-	ssl, err := client.ObtainSSL(ctx, []string{"*.haozi.net", "haozi.net"}, KeyEC256)
+	ssl, err := client.ObtainCertificateManual()*/
+	ssl, err := client.ObtainCertificate(ctx, []string{"*.haozi.net", "haozi.net"}, KeyEC256)
 	s.Error(err)
 	s.NotNil(ssl)
 }

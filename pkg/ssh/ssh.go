@@ -4,74 +4,73 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
-
-	"github.com/TheTNB/panel/v2/pkg/io"
 )
 
-type AuthMethod int8
+type AuthMethod string
 
 const (
-	PASSWORD AuthMethod = iota + 1
-	PUBLICKEY
+	PASSWORD  AuthMethod = "password"
+	PUBLICKEY AuthMethod = "publickey"
 )
 
 type ClientConfig struct {
-	AuthMethod AuthMethod
-	HostAddr   string
-	User       string
-	Password   string
-	KeyPath    string
-	Timeout    time.Duration
+	AuthMethod AuthMethod    `json:"auth_method"`
+	Host       string        `json:"host"`
+	User       string        `json:"user"`
+	Password   string        `json:"password"`
+	Key        string        `json:"key"`
+	Timeout    time.Duration `json:"timeout"`
 }
 
-func ClientConfigPassword(hostAddr, user, Password string) *ClientConfig {
+func ClientConfigPassword(host, user, Password string) *ClientConfig {
 	return &ClientConfig{
-		Timeout:    time.Second * 5,
+		Timeout:    10 * time.Second,
 		AuthMethod: PASSWORD,
-		HostAddr:   hostAddr,
+		Host:       host,
 		User:       user,
 		Password:   Password,
 	}
 }
 
-func ClientConfigPublicKey(hostAddr, user, keyPath string) *ClientConfig {
+func ClientConfigPublicKey(host, user, key string) *ClientConfig {
 	return &ClientConfig{
-		Timeout:    time.Second * 5,
+		Timeout:    10 * time.Second,
 		AuthMethod: PUBLICKEY,
-		HostAddr:   hostAddr,
+		Host:       host,
 		User:       user,
-		KeyPath:    keyPath,
+		Key:        key,
 	}
 }
 
-func NewSSHClient(conf *ClientConfig) (*ssh.Client, error) {
-	config := &ssh.ClientConfig{
-		Timeout:         conf.Timeout,
-		User:            conf.User,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+func NewSSHClient(conf ClientConfig) (*ssh.Client, error) {
+	if conf.Timeout == 0 {
+		conf.Timeout = 10 * time.Second
 	}
+
+	config := &ssh.ClientConfig{}
+	config.SetDefaults()
+	config.Timeout = conf.Timeout
+	config.User = conf.User
+	config.HostKeyCallback = ssh.InsecureIgnoreHostKey()
+
 	switch conf.AuthMethod {
 	case PASSWORD:
 		config.Auth = []ssh.AuthMethod{ssh.Password(conf.Password)}
 	case PUBLICKEY:
-		signer, err := getKey(conf.KeyPath)
+		signer, err := parseKey(conf.Key)
 		if err != nil {
 			return nil, err
 		}
 		config.Auth = []ssh.AuthMethod{ssh.PublicKeys(signer)}
 	}
-	c, err := ssh.Dial("tcp", conf.HostAddr, config)
+	c, err := ssh.Dial("tcp", conf.Host, config) // TODO support ipv6
 	if err != nil {
 		return nil, err
 	}
+
 	return c, nil
 }
 
-func getKey(keyPath string) (ssh.Signer, error) {
-	key, err := io.Read(keyPath)
-	if err != nil {
-		return nil, err
-	}
-
+func parseKey(key string) (ssh.Signer, error) {
 	return ssh.ParsePrivateKey([]byte(key))
 }

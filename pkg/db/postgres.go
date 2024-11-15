@@ -6,10 +6,10 @@ import (
 
 	_ "github.com/lib/pq"
 
-	"github.com/TheTNB/panel/v2/pkg/io"
-	"github.com/TheTNB/panel/v2/pkg/shell"
-	"github.com/TheTNB/panel/v2/pkg/systemctl"
-	"github.com/TheTNB/panel/v2/pkg/types"
+	"github.com/TheTNB/panel/pkg/io"
+	"github.com/TheTNB/panel/pkg/shell"
+	"github.com/TheTNB/panel/pkg/systemctl"
+	"github.com/TheTNB/panel/pkg/types"
 )
 
 type Postgres struct {
@@ -17,26 +17,28 @@ type Postgres struct {
 	username string
 	password string
 	address  string
+	hbaFile  string
 	port     uint
 }
 
-func NewPostgres(username, password, address string, port uint) (*Postgres, error) {
+func NewPostgres(username, password, address string, port uint, hbaFile string) (*Postgres, error) {
 	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=postgres sslmode=disable", address, port, username, password)
 	if password == "" {
 		dsn = fmt.Sprintf("host=%s port=%d user=%s dbname=postgres sslmode=disable", address, port, username)
 	}
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("初始化Postgres连接失败: %w", err)
+		return nil, fmt.Errorf("init postgres connection failed: %w", err)
 	}
-	if db.Ping() != nil {
-		return nil, fmt.Errorf("连接Postgres失败: %w", err)
+	if err = db.Ping(); err != nil {
+		return nil, fmt.Errorf("connect to postgres failed: %w", err)
 	}
 	return &Postgres{
 		db:       db,
 		username: username,
 		password: password,
 		address:  address,
+		hbaFile:  hbaFile,
 		port:     port,
 	}, nil
 }
@@ -75,6 +77,23 @@ func (m *Postgres) DatabaseDrop(name string) error {
 	return err
 }
 
+func (m *Postgres) DatabaseExist(name string) (bool, error) {
+	var count int
+	if err := m.QueryRow("SELECT COUNT(*) FROM pg_database WHERE datname = $1", name).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (m *Postgres) DatabaseSize(name string) (int64, error) {
+	query := fmt.Sprintf("SELECT pg_database_size('%s')", name)
+	var size int64
+	if err := m.QueryRow(query).Scan(&size); err != nil {
+		return 0, err
+	}
+	return size, nil
+}
+
 func (m *Postgres) UserCreate(user, password string) error {
 	_, err := m.Exec(fmt.Sprintf("CREATE USER %s WITH PASSWORD '%s'", user, password))
 	if err != nil {
@@ -90,7 +109,7 @@ func (m *Postgres) UserDrop(user string) error {
 		return err
 	}
 
-	_, _ = shell.Execf(`sed -i '/` + user + `/d' /www/server/postgresql/data/pg_hba.conf`)
+	_, _ = shell.Execf(`sed -i '/%s/d' %s`, user, m.hbaFile)
 	return systemctl.Reload("postgresql")
 }
 
@@ -117,7 +136,7 @@ func (m *Postgres) PrivilegesRevoke(user, database string) error {
 
 func (m *Postgres) HostAdd(database, user, host string) error {
 	config := fmt.Sprintf("host    %s    %s    %s    scram-sha-256", database, user, host)
-	if err := io.WriteAppend("/www/server/postgresql/data/pg_hba.conf", config); err != nil {
+	if err := io.WriteAppend(m.hbaFile, config, 0644); err != nil {
 		return err
 	}
 
@@ -126,7 +145,7 @@ func (m *Postgres) HostAdd(database, user, host string) error {
 
 func (m *Postgres) HostRemove(database, user, host string) error {
 	regex := fmt.Sprintf(`host\s+%s\s+%s\s+%s`, database, user, host)
-	if _, err := shell.Execf(`sed -i '/` + regex + `/d' /www/server/postgresql/data/pg_hba.conf`); err != nil {
+	if _, err := shell.Execf(`sed -i '/%s/d' %s`, regex, m.hbaFile); err != nil {
 		return err
 	}
 
