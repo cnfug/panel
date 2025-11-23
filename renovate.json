@@ -11,29 +11,23 @@
     "enabled": true,
     "automerge": true
   },
+  "platformAutomerge": true,
   "postUpdateOptions": [
     "gomodTidy",
+    "gomodUpdateImportPaths",
     "pnpmDedupe"
   ],
   "packageRules": [
     {
-      "groupName": "all dependencies",
-      "groupSlug": "all",
-      "description": "Automerge updates",
-      "matchPackageNames": [
-        "*"
-      ],
+      "groupName": "non-major dependencies",
       "matchUpdateTypes": [
         "digest",
+        "pin",
         "patch",
-        "minor",
-        "major"
+        "minor"
       ],
       "automerge": true
     }
   ],
-  "ignoreDeps": [
-    "eslint",
-    "@vue/eslint-config-typescript"
-  ]
+  "ignoreDeps": []
 }

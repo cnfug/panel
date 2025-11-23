@@ -8,12 +8,12 @@ import (
 
 	"github.com/beevik/ntp"
 
-	"github.com/TheTNB/panel/pkg/shell"
+	"github.com/acepanel/panel/pkg/shell"
 )
 
-var ErrNotReachable = errors.New("无法连接到 NTP 服务器")
+var ErrNotReachable = errors.New("failed to reach NTP server")
 
-var ErrNoAvailableServer = errors.New("无可用的 NTP 服务器")
+var ErrNoAvailableServer = errors.New("no available NTP server found")
 
 var defaultAddresses = []string{
 	//"ntp.ntsc.ac.cn",      // 中科院国家授时中心的服务器很快，但是多刷几次就会被封

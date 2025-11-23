@@ -6,19 +6,17 @@ defineOptions({
 import VersionModal from '@/views/app/VersionModal.vue'
 
 import { NButton, NDataTable, NFlex, NPopconfirm, NSwitch } from 'naive-ui'
-import { useI18n } from 'vue-i18n'
+import { useGettext } from 'vue3-gettext'
 
+import app from '@/api/panel/app'
 import TheIcon from '@/components/custom/TheIcon.vue'
 import { router } from '@/router'
-import { renderIcon } from '@/utils'
-import type { App } from '@/views/app/types'
-import app from '../../api/panel/app'
 
-const { t } = useI18n()
+const { $gettext } = useGettext()
 
 const versionModalShow = ref(false)
-const versionModalOperation = ref('安装')
-const versionModalInfo = ref<App>({} as App)
+const versionModalOperation = ref($gettext('Install'))
+const versionModalInfo = ref<any>({})
 
 const columns: any = [
   {
@@ -29,36 +27,32 @@ const columns: any = [
     render(row: any) {
       return h(TheIcon, {
         icon: row.icon,
-        size: 26,
-        color: `var(--primary-color)`
+        size: 26
       })
     }
   },
   {
-    title: t('appIndex.columns.name'),
+    title: $gettext('App Name'),
     key: 'name',
-    width: 300,
-    resizable: true,
+    width: 200,
     ellipsis: { tooltip: true }
   },
   {
-    title: t('appIndex.columns.description'),
+    title: $gettext('Description'),
     key: 'description',
     minWidth: 300,
-    resizable: true,
     ellipsis: { tooltip: true }
   },
   {
-    title: t('appIndex.columns.installedVersion'),
+    title: $gettext('Installed Version'),
     key: 'installed_version',
-    width: 100,
+    width: 160,
     ellipsis: { tooltip: true }
   },
   {
-    title: t('appIndex.columns.show'),
+    title: $gettext('Show in Home'),
     key: 'show',
-    width: 100,
-    align: 'center',
+    width: 140,
     render(row: any) {
       return h(NSwitch, {
         size: 'small',
@@ -69,141 +63,132 @@ const columns: any = [
     }
   },
   {
-    title: t('appIndex.columns.actions'),
+    title: $gettext('Actions'),
     key: 'actions',
-    width: 280,
+    width: 350,
     hideInExcel: true,
     render(row: any) {
-      return h(
-        NFlex,
-        {
-          justify: 'center'
-        },
-        {
-          default: () => [
-            row.installed && row.update_exist
-              ? h(
-                  NPopconfirm,
-                  {
-                    onPositiveClick: () => handleUpdate(row.slug)
+      return h(NFlex, null, {
+        default: () => [
+          row.installed && row.update_exist
+            ? h(
+                NPopconfirm,
+                {
+                  onPositiveClick: () => handleUpdate(row.slug)
+                },
+                {
+                  default: () => {
+                    return $gettext(
+                      'Updating app %{ app } may reset related configurations to default state, are you sure to continue?',
+                      { app: row.name }
+                    )
                   },
-                  {
-                    default: () => {
-                      return t('appIndex.confirm.update', { app: row.name })
-                    },
-                    trigger: () => {
-                      return h(
-                        NButton,
-                        {
-                          size: 'small',
-                          type: 'warning'
-                        },
-                        {
-                          default: () => t('appIndex.buttons.update'),
-                          icon: renderIcon('material-symbols:arrow-circle-up-outline-rounded', {
-                            size: 14
-                          })
-                        }
-                      )
-                    }
+                  trigger: () => {
+                    return h(
+                      NButton,
+                      {
+                        size: 'small',
+                        type: 'warning'
+                      },
+                      {
+                        default: () => $gettext('Update')
+                      }
+                    )
                   }
-                )
-              : null,
-            row.installed
-              ? h(
-                  NButton,
-                  {
-                    size: 'small',
-                    type: 'success',
-                    onClick: () => handleManage(row.slug)
+                }
+              )
+            : null,
+          row.installed
+            ? h(
+                NButton,
+                {
+                  size: 'small',
+                  type: 'success',
+                  onClick: () => handleManage(row.slug)
+                },
+                {
+                  default: () => $gettext('Manage')
+                }
+              )
+            : null,
+          row.installed
+            ? h(
+                NPopconfirm,
+                {
+                  onPositiveClick: () => handleUninstall(row.slug)
+                },
+                {
+                  default: () => {
+                    return $gettext('Are you sure to uninstall app %{ app }?', { app: row.name })
                   },
-                  {
-                    default: () => t('appIndex.buttons.manage'),
-                    icon: renderIcon('material-symbols:settings-outline', { size: 14 })
+                  trigger: () => {
+                    return h(
+                      NButton,
+                      {
+                        size: 'small',
+                        type: 'error'
+                      },
+                      {
+                        default: () => $gettext('Uninstall')
+                      }
+                    )
                   }
-                )
-              : null,
-            row.installed
-              ? h(
-                  NPopconfirm,
-                  {
-                    onPositiveClick: () => handleUninstall(row.slug)
-                  },
-                  {
-                    default: () => {
-                      return t('appIndex.confirm.uninstall', { app: row.name })
-                    },
-                    trigger: () => {
-                      return h(
-                        NButton,
-                        {
-                          size: 'small',
-                          type: 'error'
-                        },
-                        {
-                          default: () => t('appIndex.buttons.uninstall'),
-                          icon: renderIcon('material-symbols:delete-outline', { size: 14 })
-                        }
-                      )
-                    }
+                }
+              )
+            : null,
+          !row.installed
+            ? h(
+                NButton,
+                {
+                  size: 'small',
+                  type: 'info',
+                  onClick: () => {
+                    versionModalShow.value = true
+                    versionModalOperation.value = $gettext('Install')
+                    versionModalInfo.value = row
                   }
-                )
-              : null,
-            !row.installed
-              ? h(
-                  NButton,
-                  {
-                    size: 'small',
-                    type: 'info',
-                    onClick: () => {
-                      versionModalShow.value = true
-                      versionModalOperation.value = '安装'
-                      versionModalInfo.value = row
-                    }
-                  },
-                  {
-                    default: () => t('appIndex.buttons.install'),
-                    icon: renderIcon('material-symbols:download-rounded', { size: 14 })
-                  }
-                )
-              : null
-          ]
-        }
-      )
+                },
+                {
+                  default: () => $gettext('Install')
+                }
+              )
+            : null
+        ]
+      })
     }
   }
 ]
 
-const apps = ref<App[]>([] as App[])
-
-const selectedRowKeys = ref<any>([])
-
-const pagination = reactive({
-  page: 1,
-  pageCount: 1,
-  pageSize: 20,
-  itemCount: 0,
-  showQuickJumper: true,
-  showSizePicker: true,
-  pageSizes: [20, 50, 100, 200]
-})
+const { loading, data, page, total, pageSize, pageCount, refresh } = usePagination(
+  (page, pageSize) => app.list(page, pageSize),
+  {
+    initialData: { total: 0, list: [] },
+    initialPageSize: 20,
+    total: (res: any) => res.total,
+    data: (res: any) => res.items
+  }
+)
 
 const handleShowChange = (row: any) => {
-  app.updateShow(row.slug, !row.show).then(() => {
-    window.$message.success(t('appIndex.alerts.setup'))
+  useRequest(app.updateShow(row.slug, !row.show)).onSuccess(() => {
     row.show = !row.show
+    window.$message.success($gettext('Setup successfully'))
   })
 }
 
 const handleUpdate = (slug: string) => {
-  app.update(slug).then(() => {
-    window.$message.success(t('appIndex.alerts.update'))
+  useRequest(app.update(slug)).onSuccess(() => {
+    window.$message.success(
+      $gettext('Task submitted, please check the progress in background tasks')
+    )
   })
 }
 
 const handleUninstall = (slug: string) => {
-  app.uninstall(slug).then(() => {
-    window.$message.success(t('appIndex.alerts.uninstall'))
+  useRequest(app.uninstall(slug)).onSuccess(() => {
+    window.$message.success(
+      $gettext('Task submitted, please check the progress in background tasks')
+    )
   })
 }
 
@@ -212,68 +197,55 @@ const handleManage = (slug: string) => {
 }
 
 const handleUpdateCache = () => {
-  app.updateCache().then(() => {
-    window.$message.success(t('appIndex.alerts.cache'))
-    onPageChange(1)
+  useRequest(app.updateCache()).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Cache updated successfully'))
   })
-}
-
-const getAppList = async (page: number, limit: number) => {
-  const { data } = await app.list(page, limit)
-  return data
-}
-
-const onChecked = (rowKeys: any) => {
-  selectedRowKeys.value = rowKeys
-}
-
-const onPageChange = (page: number) => {
-  pagination.page = page
-  getAppList(page, pagination.pageSize).then((res) => {
-    apps.value = res.items
-    pagination.itemCount = res.total
-    pagination.pageCount = res.total / pagination.pageSize + 1
-  })
-}
-
-const onPageSizeChange = (pageSize: number) => {
-  pagination.pageSize = pageSize
-  onPageChange(1)
 }
 
 onMounted(() => {
-  onPageChange(pagination.page)
+  refresh()
 })
 </script>
 
 <template>
   <common-page show-footer>
-    <template #action>
-      <n-button type="primary" @click="handleUpdateCache">
-        <TheIcon :size="18" icon="material-symbols:refresh" />
-        {{ $t('appIndex.buttons.updateCache') }}
-      </n-button>
-    </template>
     <n-flex vertical>
-      <n-alert type="warning">{{ $t('appIndex.alerts.warning') }}</n-alert>
+      <n-flex>
+        <n-button type="primary" @click="handleUpdateCache">
+          {{ $gettext('Update Cache') }}
+        </n-button>
+      </n-flex>
+      <n-alert type="warning">{{
+        $gettext(
+          'Before updating apps, it is strongly recommended to backup/snapshot first, so you can roll back immediately if there are any issues!'
+        )
+      }}</n-alert>
       <n-data-table
         striped
         remote
-        :scroll-x="1000"
-        :loading="false"
+        :scroll-x="1200"
+        :loading="loading"
         :columns="columns"
-        :data="apps"
+        :data="data"
         :row-key="(row: any) => row.slug"
-        :pagination="pagination"
-        @update:checked-row-keys="onChecked"
-        @update:page="onPageChange"
-        @update:page-size="onPageSizeChange"
-      />
-      <version-modal
-        v-model:show="versionModalShow"
-        v-model:operation="versionModalOperation"
-        v-model:info="versionModalInfo"
+        v-model:page="page"
+        v-model:pageSize="pageSize"
+        :pagination="{
+          page: page,
+          pageCount: pageCount,
+          pageSize: pageSize,
+          itemCount: total,
+          showQuickJumper: true,
+          showSizePicker: true,
+          pageSizes: [20, 50, 100, 200]
+        }"
       />
     </n-flex>
+    <version-modal
+      v-model:show="versionModalShow"
+      v-model:operation="versionModalOperation"
+      v-model:info="versionModalInfo"
+    />
   </common-page>
 </template>

@@ -2,26 +2,40 @@ package job
 
 import (
 	"log/slog"
+	"math/rand/v2"
 	"runtime"
 	"runtime/debug"
+	"time"
 
-	"github.com/TheTNB/panel/internal/app"
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/internal/data"
+	"github.com/hashicorp/go-version"
+	"github.com/libtnb/utils/collect"
+	"gorm.io/gorm"
+
+	"github.com/acepanel/panel/internal/app"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/pkg/api"
 )
 
 // PanelTask 面板每日任务
 type PanelTask struct {
-	appRepo     biz.AppRepo
+	api         *api.API
+	db          *gorm.DB
+	log         *slog.Logger
 	backupRepo  biz.BackupRepo
+	cacheRepo   biz.CacheRepo
+	taskRepo    biz.TaskRepo
 	settingRepo biz.SettingRepo
 }
 
-func NewPanelTask() *PanelTask {
+func NewPanelTask(db *gorm.DB, log *slog.Logger, backup biz.BackupRepo, cache biz.CacheRepo, task biz.TaskRepo, setting biz.SettingRepo) *PanelTask {
 	return &PanelTask{
-		appRepo:     data.NewAppRepo(),
-		backupRepo:  data.NewBackupRepo(),
-		settingRepo: data.NewSettingRepo(),
+		api:         api.NewAPI(app.Version, app.Locale),
+		db:          db,
+		log:         log,
+		backupRepo:  backup,
+		cacheRepo:   cache,
+		taskRepo:    task,
+		settingRepo: setting,
 	}
 }
 
@@ -29,32 +43,40 @@ func (r *PanelTask) Run() {
 	app.Status = app.StatusMaintain
 
 	// 优化数据库
-	if err := app.Orm.Exec("VACUUM").Error; err != nil {
+	if err := r.db.Exec("VACUUM").Error; err != nil {
 		app.Status = app.StatusFailed
-		app.Logger.Warn("优化面板数据库失败", slog.Any("err", err))
+		r.log.Warn("[PanelTask] failed to vacuum database", slog.Any("err", err))
+		return
 	}
-	if err := app.Orm.Exec("PRAGMA wal_checkpoint(TRUNCATE);").Error; err != nil {
+	if err := r.db.Exec("PRAGMA journal_mode=WAL;").Error; err != nil {
 		app.Status = app.StatusFailed
-		app.Logger.Warn("优化面板数据库失败", slog.Any("err", err))
+		r.log.Warn("[PanelTask] failed to set database journal_mode to WAL", slog.Any("err", err))
+		return
+	}
+	if err := r.db.Exec("PRAGMA wal_checkpoint(TRUNCATE);").Error; err != nil {
+		app.Status = app.StatusFailed
+		r.log.Warn("[PanelTask] failed to wal checkpoint database", slog.Any("err", err))
+		return
 	}
 
 	// 备份面板
 	if err := r.backupRepo.Create(biz.BackupTypePanel, ""); err != nil {
-		app.Logger.Warn("备份面板失败", slog.Any("err", err))
+		r.log.Warn("[PanelTask] failed to backup panel", slog.Any("err", err))
 	}
 
 	// 清理备份
-	path, err := r.backupRepo.GetPath("panel")
-	if err == nil {
+	if path, err := r.backupRepo.GetPath("panel"); err == nil {
 		if err = r.backupRepo.ClearExpired(path, "panel_", 10); err != nil {
-			app.Logger.Warn("清理面板备份失败", slog.Any("err", err))
+			r.log.Warn("[PanelTask] failed to clear backup", slog.Any("err", err))
 		}
 	}
 
-	// 更新商店缓存
+	// 非离线模式下任务
 	if offline, err := r.settingRepo.GetBool(biz.SettingKeyOfflineMode); err == nil && !offline {
-		if err = r.appRepo.UpdateCache(); err != nil {
-			app.Logger.Warn("更新商店缓存失败", slog.Any("err", err))
+		r.updateApps()
+		r.updateRewrites()
+		if autoUpdate, err := r.settingRepo.GetBool(biz.SettingKeyAutoUpdate); err == nil && autoUpdate {
+			r.updatePanel()
 		}
 	}
 
@@ -63,4 +85,56 @@ func (r *PanelTask) Run() {
 	debug.FreeOSMemory()
 
 	app.Status = app.StatusNormal
+}
+
+// 更新商店缓存
+func (r *PanelTask) updateApps() {
+	time.AfterFunc(time.Duration(rand.IntN(300))*time.Second, func() {
+		if err := r.cacheRepo.UpdateApps(); err != nil {
+			r.log.Warn("[PanelTask] failed to update apps cache", slog.Any("err", err))
+		}
+	})
+}
+
+// 更新伪静态缓存
+func (r *PanelTask) updateRewrites() {
+	time.AfterFunc(time.Duration(rand.IntN(300))*time.Second, func() {
+		if err := r.cacheRepo.UpdateRewrites(); err != nil {
+			r.log.Warn("[PanelTask] failed to update rewrites cache", slog.Any("err", err))
+		}
+	})
+}
+
+// 更新面板
+func (r *PanelTask) updatePanel() {
+	if r.taskRepo.HasRunningTask() {
+		return
+	}
+
+	channel, _ := r.settingRepo.Get(biz.SettingKeyChannel)
+
+	// 加 300 秒确保在缓存更新后才更新面板
+	time.AfterFunc(time.Duration(rand.IntN(300))*time.Second+300*time.Second, func() {
+		panel, err := r.api.LatestVersion(channel)
+		if err != nil {
+			return
+		}
+		current, err := version.NewVersion(app.Version)
+		if err != nil {
+			return
+		}
+		latest, err := version.NewVersion(panel.Version)
+		if err != nil {
+			return
+		}
+		if current.GreaterThanOrEqual(latest) {
+			return
+		}
+		if download := collect.First(panel.Downloads); download != nil {
+			if err = r.backupRepo.UpdatePanel(panel.Version, download.URL, download.Checksum); err != nil {
+				r.log.Warn("[PanelTask] failed to update panel", slog.Any("err", err))
+				_ = r.backupRepo.FixPanel()
+			}
+		}
+	})
 }

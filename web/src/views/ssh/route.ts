@@ -15,7 +15,7 @@ export default {
       path: '',
       component: () => import('./IndexView.vue'),
       meta: {
-        title: 'sshIndex.title',
+        title: 'Terminal',
         icon: 'mdi:console',
         role: ['admin'],
         requireAuth: true

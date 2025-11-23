@@ -5,18 +5,25 @@ defineOptions({
 
 import Editor from '@guolao/vue-monaco-editor'
 import { NButton, NDataTable, NInput, NPopconfirm } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
 import supervisor from '@/api/apps/supervisor'
-import systemctl from '@/api/panel/systemctl'
-import { renderIcon } from '@/utils'
-import type { Process } from '@/views/apps/supervisor/types'
+import ServiceStatus from '@/components/common/ServiceStatus.vue'
 
+const { $gettext } = useGettext()
 const currentTab = ref('status')
-const serviceName = ref('supervisor')
-const status = ref(false)
-const isEnabled = ref(false)
-const config = ref('')
 const processLog = ref('')
+
+const { data: serviceName } = useRequest(supervisor.service, {
+  initialData: ''
+}).onSuccess(() => {
+  refresh()
+  config.value = supervisor.config()
+})
+
+const { data: config } = useRequest(supervisor.config, {
+  initialData: ''
+})
 
 const createProcessModal = ref(false)
 const createProcessModel = ref({
@@ -35,23 +42,16 @@ const editProcessModel = ref({
 
 const processLogModal = ref(false)
 
-const statusType = computed(() => {
-  return status.value ? 'success' : 'error'
-})
-const statusStr = computed(() => {
-  return status.value ? '正常运行中' : '已停止运行'
-})
-
 const processColumns: any = [
   {
-    title: '名称',
+    title: $gettext('Name'),
     key: 'name',
     minWidth: 200,
     resizable: true,
     ellipsis: { tooltip: true }
   },
   {
-    title: '状态',
+    title: $gettext('Status'),
     key: 'status',
     minWidth: 100,
     resizable: true,
@@ -65,17 +65,16 @@ const processColumns: any = [
     ellipsis: { tooltip: true }
   },
   {
-    title: '运行时间',
+    title: $gettext('Uptime'),
     key: 'uptime',
     minWidth: 150,
     resizable: true,
     ellipsis: { tooltip: true }
   },
   {
-    title: '操作',
+    title: $gettext('Actions'),
     key: 'actions',
     width: 500,
-    align: 'center',
     hideInExcel: true,
     render(row: any) {
       return [
@@ -88,8 +87,7 @@ const processColumns: any = [
             onClick: () => handleShowProcessLog(row)
           },
           {
-            default: () => '日志',
-            icon: renderIcon('material-symbols:visibility', { size: 14 })
+            default: () => $gettext('Logs')
           }
         ),
         h(
@@ -101,8 +99,7 @@ const processColumns: any = [
             onClick: () => handleEditProcess(row.name)
           },
           {
-            default: () => '配置',
-            icon: renderIcon('material-symbols:settings-outline', { size: 14 })
+            default: () => $gettext('Configure')
           }
         ),
         row.status != 'RUNNING'
@@ -116,8 +113,7 @@ const processColumns: any = [
                 onClick: () => handleProcessStart(row.name)
               },
               {
-                default: () => '启动',
-                icon: renderIcon('material-symbols:play-arrow-outline', { size: 18 })
+                default: () => $gettext('Start')
               }
             )
           : null,
@@ -129,7 +125,9 @@ const processColumns: any = [
               },
               {
                 default: () => {
-                  return '确定停止进程' + row.name + '吗？'
+                  return $gettext('Are you sure you want to stop process %{ name }?', {
+                    name: row.name
+                  })
                 },
                 trigger: () => {
                   return h(
@@ -140,8 +138,7 @@ const processColumns: any = [
                       style: 'margin-left: 15px'
                     },
                     {
-                      default: () => '停止',
-                      icon: renderIcon('material-symbols:stop-outline', { size: 18 })
+                      default: () => $gettext('Stop')
                     }
                   )
                 }
@@ -156,7 +153,9 @@ const processColumns: any = [
               },
               {
                 default: () => {
-                  return '确定重启进程' + row.name + '吗？'
+                  return $gettext('Are you sure you want to restart process %{ name }?', {
+                    name: row.name
+                  })
                 },
                 trigger: () => {
                   return h(
@@ -167,8 +166,7 @@ const processColumns: any = [
                       style: 'margin-left: 15px'
                     },
                     {
-                      default: () => '重启',
-                      icon: renderIcon('material-symbols:replay', { size: 18 })
+                      default: () => $gettext('Restart')
                     }
                   )
                 }
@@ -182,7 +180,9 @@ const processColumns: any = [
           },
           {
             default: () => {
-              return '确定删除进程' + row.name + '吗？'
+              return $gettext('Are you sure you want to delete process %{ name }?', {
+                name: row.name
+              })
             },
             trigger: () => {
               return h(
@@ -193,8 +193,7 @@ const processColumns: any = [
                   style: 'margin-left: 15px'
                 },
                 {
-                  default: () => '删除',
-                  icon: renderIcon('material-symbols:delete-outline', { size: 14 })
+                  default: () => $gettext('Delete')
                 }
               )
             }
@@ -205,127 +204,68 @@ const processColumns: any = [
   }
 ]
 
-const processes = ref<Process[]>([])
-
-const pagination = reactive({
-  page: 1,
-  pageCount: 1,
-  pageSize: 20,
-  itemCount: 0,
-  showQuickJumper: true,
-  showSizePicker: true,
-  pageSizes: [20, 50, 100, 200]
-})
-
-const getProcesses = async (page: number, limit: number) => {
-  const { data } = await supervisor.processes(page, limit)
-  return data
-}
-
-const onPageChange = (page: number) => {
-  pagination.page = page
-  getProcesses(page, pagination.pageSize).then((res) => {
-    processes.value = res.items
-    pagination.itemCount = res.total
-    pagination.pageCount = res.total / pagination.pageSize + 1
-  })
-}
-
-const onPageSizeChange = (pageSize: number) => {
-  pagination.pageSize = pageSize
-  onPageChange(1)
-}
-
-const getStatus = async () => {
-  await systemctl.status(serviceName.value).then((res: any) => {
-    status.value = res.data
-  })
-}
-
-const getIsEnabled = async () => {
-  await systemctl.isEnabled(serviceName.value).then((res: any) => {
-    isEnabled.value = res.data
-  })
-}
-
-const getConfig = async () => {
-  supervisor.config().then((res: any) => {
-    config.value = res.data
-  })
-}
-
-const handleSaveConfig = async () => {
-  await supervisor.saveConfig(config.value)
-  window.$message.success('保存成功')
-}
-
-const handleClearLog = async () => {
-  await supervisor.clearLog()
-  window.$message.success('清空成功')
-}
-
-const handleStart = async () => {
-  await systemctl.start(serviceName.value)
-  window.$message.success('启动成功')
-  await getStatus()
-}
-
-const handleIsEnabled = async () => {
-  if (isEnabled.value) {
-    await systemctl.enable(serviceName.value)
-    window.$message.success('开启自启动成功')
-  } else {
-    await systemctl.disable(serviceName.value)
-    window.$message.success('禁用自启动成功')
+const { loading, data, page, total, pageSize, pageCount, refresh } = usePagination(
+  (page, pageSize) => supervisor.processes(page, pageSize),
+  {
+    initialData: { total: 0, list: [] },
+    initialPageSize: 20,
+    total: (res: any) => res.total,
+    data: (res: any) => res.items
   }
-  await getIsEnabled()
-}
+)
 
-const handleStop = async () => {
-  await systemctl.stop(serviceName.value)
-  window.$message.success('停止成功')
-  await getStatus()
-}
-
-const handleRestart = async () => {
-  await systemctl.restart(serviceName.value)
-  window.$message.success('重启成功')
-  await getStatus()
-}
-
-const handleCreateProcess = async () => {
-  await supervisor.createProcess(createProcessModel.value)
-  window.$message.success('添加成功')
-  createProcessModal.value = false
-  onPageChange(1)
-}
-
-const handleProcessStart = async (name: string) => {
-  await supervisor.startProcess(name)
-  window.$message.success('启动成功')
-}
-
-const handleProcessStop = async (name: string) => {
-  await supervisor.stopProcess(name)
-  window.$message.success('停止成功')
-}
-
-const handleProcessRestart = async (name: string) => {
-  await supervisor.restartProcess(name)
-  window.$message.success('重启成功')
-}
-
-const handleProcessDelete = async (name: string) => {
-  await supervisor.deleteProcess(name)
-  window.$message.success('删除成功')
-  onPageChange(1)
-}
-
-const handleShowProcessLog = (row: any) => {
-  supervisor.processLog(row.name).then((res) => {
-    processLogModal.value = true
-    processLog.value = res.data
+const handleSaveConfig = () => {
+  useRequest(supervisor.saveConfig(config.value)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Saved successfully'))
   })
+}
+
+const handleClearLog = () => {
+  useRequest(supervisor.clearLog()).onSuccess(() => {
+    window.$message.success($gettext('Cleared successfully'))
+  })
+}
+
+const handleCreateProcess = () => {
+  useRequest(supervisor.createProcess(createProcessModel.value)).onSuccess(() => {
+    refresh()
+    createProcessModal.value = false
+    window.$message.success($gettext('Added successfully'))
+  })
+}
+
+const handleProcessStart = (name: string) => {
+  useRequest(supervisor.startProcess(name)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Started successfully'))
+  })
+}
+
+const handleProcessStop = (name: string) => {
+  useRequest(supervisor.stopProcess(name)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Stopped successfully'))
+  })
+}
+
+const handleProcessRestart = (name: string) => {
+  useRequest(supervisor.restartProcess(name)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Restarted successfully'))
+  })
+}
+
+const handleProcessDelete = (name: string) => {
+  useRequest(supervisor.deleteProcess(name)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Deleted successfully'))
+  })
+}
+
+const handleShowProcessLog = async (row: any) => {
+  processLog.value = await supervisor.processLog(row.name)
+  processLogModal.value = true
 }
 
 const handleEditProcess = async (name: string) => {
@@ -335,27 +275,18 @@ const handleEditProcess = async (name: string) => {
 
 const getProcessConfig = async (name: string) => {
   editProcessModel.value.process = name
-  await supervisor.processConfig(name).then((res: any) => {
-    editProcessModel.value.config = res.data
+  editProcessModel.value.config = await supervisor.processConfig(name)
+}
+
+const handleSaveProcessConfig = () => {
+  useRequest(
+    supervisor.saveProcessConfig(editProcessModel.value.process, editProcessModel.value.config)
+  ).onSuccess(() => {
+    window.$message.success($gettext('Saved successfully'))
   })
 }
 
-const handleSaveProcessConfig = async () => {
-  await supervisor.saveProcessConfig(editProcessModel.value.process, editProcessModel.value.config)
-  window.$message.success('保存成功')
-}
-
-let timer: any = null
-
-onMounted(async () => {
-  await supervisor.service().then((res: any) => {
-    serviceName.value = res.data
-  })
-  await getStatus()
-  await getIsEnabled()
-  await getConfig()
-  onPageChange(1)
-})
+const timer: any = null
 
 onUnmounted(() => {
   clearInterval(timer)
@@ -364,86 +295,47 @@ onUnmounted(() => {
 
 <template>
   <common-page show-footer>
-    <template #action>
-      <n-button
-        v-if="currentTab == 'config'"
-        class="ml-16"
-        type="primary"
-        @click="handleSaveConfig"
-      >
-        <TheIcon :size="18" icon="material-symbols:save-outline" />
-        保存
-      </n-button>
-      <n-button
-        v-if="currentTab == 'processes'"
-        class="ml-16"
-        type="primary"
-        @click="createProcessModal = true"
-      >
-        <TheIcon :size="18" icon="material-symbols:add" />
-        添加进程
-      </n-button>
-      <n-button v-if="currentTab == 'log'" class="ml-16" type="primary" @click="handleClearLog">
-        <TheIcon :size="18" icon="material-symbols:delete-outline" />
-        清空日志
-      </n-button>
-    </template>
     <n-tabs v-model:value="currentTab" type="line" animated>
-      <n-tab-pane name="status" tab="运行状态">
-        <n-space vertical>
-          <n-card title="运行状态" rounded-10>
-            <template #header-extra>
-              <n-switch v-model:value="isEnabled" @update:value="handleIsEnabled">
-                <template #checked> 自启动开</template>
-                <template #unchecked> 自启动关</template>
-              </n-switch>
-            </template>
-            <n-space vertical>
-              <n-alert :type="statusType">
-                {{ statusStr }}
-              </n-alert>
-              <n-space>
-                <n-button type="success" @click="handleStart">
-                  <TheIcon :size="24" icon="material-symbols:play-arrow-outline-rounded" />
-                  启动
-                </n-button>
-                <n-popconfirm @positive-click="handleStop">
-                  <template #trigger>
-                    <n-button type="error">
-                      <TheIcon :size="24" icon="material-symbols:stop-outline-rounded" />
-                      停止
-                    </n-button>
-                  </template>
-                  停止 Supervisor 会导致 Supervisor 管理的所有进程被杀死，确定要停止吗？
-                </n-popconfirm>
-                <n-button type="warning" @click="handleRestart">
-                  <TheIcon :size="18" icon="material-symbols:replay-rounded" />
-                  重启
-                </n-button>
-              </n-space>
-            </n-space>
-          </n-card>
-        </n-space>
+      <n-tab-pane name="status" :tab="$gettext('Running Status')">
+        <service-status v-if="serviceName != ''" :service="serviceName" />
       </n-tab-pane>
-      <n-tab-pane name="processes" tab="进程管理">
-        <n-card title="进程列表" :segmented="true" rounded-10>
+      <n-tab-pane name="processes" :tab="$gettext('Process Management')">
+        <n-flex vertical>
+          <n-flex>
+            <n-button type="primary" @click="createProcessModal = true">
+              {{ $gettext('Add Process') }}
+            </n-button>
+          </n-flex>
           <n-data-table
             striped
             remote
             :scroll-x="1000"
-            :loading="false"
+            :loading="loading"
             :columns="processColumns"
-            :data="processes"
+            :data="data"
             :row-key="(row: any) => row.name"
-            @update:page="onPageChange"
-            @update:page-size="onPageSizeChange"
+            v-model:page="page"
+            v-model:pageSize="pageSize"
+            :pagination="{
+              page: page,
+              pageCount: pageCount,
+              pageSize: pageSize,
+              itemCount: total,
+              showQuickJumper: true,
+              showSizePicker: true,
+              pageSizes: [20, 50, 100, 200]
+            }"
           />
-        </n-card>
+        </n-flex>
       </n-tab-pane>
-      <n-tab-pane name="config" tab="主配置">
-        <n-space vertical>
+      <n-tab-pane name="config" :tab="$gettext('Main Configuration')">
+        <n-flex vertical>
           <n-alert type="warning">
-            此处修改的是 Supervisor 主配置文件，如果您不了解各参数的含义，请不要随意修改！
+            {{
+              $gettext(
+                'This modifies the Supervisor main configuration file. If you do not understand the meaning of each parameter, please do not modify it randomly!'
+              )
+            }}
           </n-alert>
           <Editor
             v-model:value="config"
@@ -453,21 +345,35 @@ onUnmounted(() => {
             mt-8
             :options="{
               automaticLayout: true,
-              formatOnType: true,
-              formatOnPaste: true
+              smoothScrolling: true
             }"
           />
-        </n-space>
+          <n-flex>
+            <n-button type="primary" @click="handleSaveConfig">
+              {{ $gettext('Save') }}
+            </n-button>
+          </n-flex>
+        </n-flex>
       </n-tab-pane>
-      <n-tab-pane name="log" tab="日志">
-        <realtime-log path="/var/log/supervisor/supervisord.log" />
+      <n-tab-pane name="run-log" :tab="$gettext('Runtime Logs')">
+        <realtime-log service="supervisor" />
+      </n-tab-pane>
+      <n-tab-pane name="log" :tab="$gettext('Daemon Logs')">
+        <n-flex vertical>
+          <n-flex>
+            <n-button type="primary" @click="handleClearLog">
+              {{ $gettext('Clear Log') }}
+            </n-button>
+          </n-flex>
+          <realtime-log path="/var/log/supervisor/supervisord.log" />
+        </n-flex>
       </n-tab-pane>
     </n-tabs>
   </common-page>
   <n-modal
     v-model:show="createProcessModal"
     preset="card"
-    title="添加进程"
+    :title="$gettext('Add Process')"
     style="width: 60vw"
     size="huge"
     :bordered="false"
@@ -475,49 +381,49 @@ onUnmounted(() => {
     @close="createProcessModal = false"
   >
     <n-form :model="createProcessModel">
-      <n-form-item path="name" label="名称">
+      <n-form-item path="name" :label="$gettext('Name')">
         <n-input
           v-model:value="createProcessModel.name"
           type="text"
           @keydown.enter.prevent
-          placeholder="名称禁止使用中文"
+          :placeholder="$gettext('Name cannot contain Chinese characters')"
         />
       </n-form-item>
-      <n-form-item path="command" label="启动命令">
+      <n-form-item path="command" :label="$gettext('Start Command')">
         <n-input
           v-model:value="createProcessModel.command"
           type="text"
           @keydown.enter.prevent
-          placeholder="启动命令中的文件请填写绝对路径"
+          :placeholder="$gettext('Please enter absolute path for files in start command')"
         />
       </n-form-item>
-      <n-form-item path="path" label="运行目录">
+      <n-form-item path="path" :label="$gettext('Working Directory')">
         <n-input
           v-model:value="createProcessModel.path"
           type="text"
           @keydown.enter.prevent
-          placeholder="运行目录请填写绝对路径"
+          :placeholder="$gettext('Please enter absolute path for working directory')"
         />
       </n-form-item>
-      <n-form-item path="user" label="启动用户">
+      <n-form-item path="user" :label="$gettext('Run As User')">
         <n-input
           v-model:value="createProcessModel.user"
           type="text"
           @keydown.enter.prevent
-          placeholder="一般情况下填写www即可"
+          :placeholder="$gettext('Usually www is sufficient')"
         />
       </n-form-item>
-      <n-form-item path="num" label="进程数量">
+      <n-form-item path="num" :label="$gettext('Number of Processes')">
         <n-input-number v-model:value="createProcessModel.num" :min="1" />
       </n-form-item>
     </n-form>
-    <n-button type="info" block @click="handleCreateProcess">提交</n-button>
+    <n-button type="info" block @click="handleCreateProcess">{{ $gettext('Submit') }}</n-button>
   </n-modal>
   <realtime-log-modal v-model:show="processLogModal" :path="processLog" />
   <n-modal
     v-model:show="editProcessModal"
     preset="card"
-    title="进程配置"
+    :title="$gettext('Process Configuration')"
     style="width: 80vw"
     size="huge"
     :bordered="false"
@@ -532,8 +438,7 @@ onUnmounted(() => {
       mt-8
       :options="{
         automaticLayout: true,
-        formatOnType: true,
-        formatOnPaste: true
+        smoothScrolling: true
       }"
     />
   </n-modal>

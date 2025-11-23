@@ -15,7 +15,7 @@ export default {
       path: '',
       component: () => import('./IndexView.vue'),
       meta: {
-        title: 'websiteIndex.title',
+        title: 'Website',
         icon: 'mdi:web',
         role: ['admin'],
         requireAuth: true
@@ -27,7 +27,7 @@ export default {
       component: () => import('./EditView.vue'),
       isHidden: true,
       meta: {
-        title: '编辑网站',
+        title: 'Website Edit',
         icon: 'mdi:web',
         role: ['admin'],
         requireAuth: true

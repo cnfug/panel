@@ -4,35 +4,47 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/TheTNB/panel/internal/app"
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/internal/http/request"
-	"github.com/TheTNB/panel/pkg/acme"
-	pkgcert "github.com/TheTNB/panel/pkg/cert"
-	"github.com/TheTNB/panel/pkg/io"
-	"github.com/TheTNB/panel/pkg/shell"
-	"github.com/TheTNB/panel/pkg/systemctl"
-	"github.com/TheTNB/panel/pkg/types"
+	"github.com/leonelquinteros/gotext"
+	"gorm.io/gorm"
+
+	"github.com/acepanel/panel/internal/app"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/internal/http/request"
+	"github.com/acepanel/panel/pkg/acme"
+	pkgcert "github.com/acepanel/panel/pkg/cert"
+	"github.com/acepanel/panel/pkg/io"
+	"github.com/acepanel/panel/pkg/shell"
+	"github.com/acepanel/panel/pkg/systemctl"
+	"github.com/acepanel/panel/pkg/types"
 )
 
 type certRepo struct {
+	t      *gotext.Locale
+	db     *gorm.DB
+	log    *slog.Logger
 	client *acme.Client
 }
 
-func NewCertRepo() biz.CertRepo {
-	return &certRepo{}
+func NewCertRepo(t *gotext.Locale, db *gorm.DB, log *slog.Logger) biz.CertRepo {
+	return &certRepo{
+		t:   t,
+		db:  db,
+		log: log,
+	}
 }
 
 func (r *certRepo) List(page, limit uint) ([]*types.CertList, int64, error) {
 	var certs []*biz.Cert
 	var total int64
-	err := app.Orm.Model(&biz.Cert{}).Preload("Website").Preload("Account").Preload("DNS").Order("id desc").Count(&total).Offset(int((page - 1) * limit)).Limit(int(limit)).Find(&certs).Error
+	err := r.db.Model(&biz.Cert{}).Preload("Website").Preload("Account").Preload("DNS").Order("id desc").Count(&total).Offset(int((page - 1) * limit)).Limit(int(limit)).Find(&certs).Error
 
-	var list []*types.CertList
+	list := make([]*types.CertList, 0)
 	for cert := range slices.Values(certs) {
 		item := &types.CertList{
 			ID:        cert.ID,
@@ -44,6 +56,8 @@ func (r *certRepo) List(page, limit uint) ([]*types.CertList, int64, error) {
 			AutoRenew: cert.AutoRenew,
 			Cert:      cert.Cert,
 			Key:       cert.Key,
+			CertURL:   cert.CertURL,
+			Script:    cert.Script,
 			CreatedAt: cert.CreatedAt,
 			UpdatedAt: cert.UpdatedAt,
 		}
@@ -62,23 +76,23 @@ func (r *certRepo) List(page, limit uint) ([]*types.CertList, int64, error) {
 
 func (r *certRepo) Get(id uint) (*biz.Cert, error) {
 	cert := new(biz.Cert)
-	err := app.Orm.Model(&biz.Cert{}).Preload("Website").Preload("Account").Preload("DNS").Where("id = ?", id).First(cert).Error
+	err := r.db.Model(&biz.Cert{}).Preload("Website").Preload("Account").Preload("DNS").Where("id = ?", id).First(cert).Error
 	return cert, err
 }
 
 func (r *certRepo) GetByWebsite(WebsiteID uint) (*biz.Cert, error) {
 	cert := new(biz.Cert)
-	err := app.Orm.Model(&biz.Cert{}).Preload("Website").Preload("Account").Preload("DNS").Where("website_id = ?", WebsiteID).First(cert).Error
+	err := r.db.Model(&biz.Cert{}).Preload("Website").Preload("Account").Preload("DNS").Where("website_id = ?", WebsiteID).First(cert).Error
 	return cert, err
 }
 
 func (r *certRepo) Upload(req *request.CertUpload) (*biz.Cert, error) {
 	info, err := pkgcert.ParseCert(req.Cert)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse certificate: %v", err)
+		return nil, errors.New(r.t.Get("failed to parse certificate: %v", err))
 	}
 	if _, err = pkgcert.ParseKey(req.Key); err != nil {
-		return nil, fmt.Errorf("failed to parse private key: %v", err)
+		return nil, errors.New(r.t.Get("failed to parse private key: %v", err))
 	}
 
 	cert := &biz.Cert{
@@ -87,7 +101,7 @@ func (r *certRepo) Upload(req *request.CertUpload) (*biz.Cert, error) {
 		Cert:    req.Cert,
 		Key:     req.Key,
 	}
-	if err = app.Orm.Create(cert).Error; err != nil {
+	if err = r.db.Create(cert).Error; err != nil {
 		return nil, err
 	}
 
@@ -103,7 +117,7 @@ func (r *certRepo) Create(req *request.CertCreate) (*biz.Cert, error) {
 		Domains:   req.Domains,
 		AutoRenew: req.AutoRenew,
 	}
-	if err := app.Orm.Create(cert).Error; err != nil {
+	if err := r.db.Create(cert).Error; err != nil {
 		return nil, err
 	}
 	return cert, nil
@@ -114,8 +128,11 @@ func (r *certRepo) Update(req *request.CertUpdate) error {
 	if err == nil && req.Type == "upload" {
 		req.Domains = info.DNSNames
 	}
+	if req.Type == "upload" && req.AutoRenew {
+		return errors.New(r.t.Get("upload certificate cannot be set to auto renew"))
+	}
 
-	return app.Orm.Model(&biz.Cert{}).Where("id = ?", req.ID).Select("*").Updates(&biz.Cert{
+	return r.db.Model(&biz.Cert{}).Where("id = ?", req.ID).Select("*").Updates(&biz.Cert{
 		ID:        req.ID,
 		AccountID: req.AccountID,
 		WebsiteID: req.WebsiteID,
@@ -123,13 +140,14 @@ func (r *certRepo) Update(req *request.CertUpdate) error {
 		Type:      req.Type,
 		Cert:      req.Cert,
 		Key:       req.Key,
+		Script:    req.Script,
 		Domains:   req.Domains,
 		AutoRenew: req.AutoRenew,
 	}).Error
 }
 
 func (r *certRepo) Delete(id uint) error {
-	return app.Orm.Model(&biz.Cert{}).Where("id = ?", id).Delete(&biz.Cert{}).Error
+	return r.db.Model(&biz.Cert{}).Where("id = ?", id).Delete(&biz.Cert{}).Error
 }
 
 func (r *certRepo) ObtainAuto(id uint) (*acme.Certificate, error) {
@@ -144,14 +162,14 @@ func (r *certRepo) ObtainAuto(id uint) (*acme.Certificate, error) {
 	}
 
 	if cert.DNS != nil {
-		client.UseDns(acme.DnsType(cert.DNS.Type), cert.DNS.Data)
+		client.UseDns(cert.DNS.Type, cert.DNS.Data)
 	} else {
 		if cert.Website == nil {
-			return nil, errors.New("this certificate is not associated with a website and cannot be signed. You can try to sign it manually")
+			return nil, errors.New(r.t.Get("this certificate is not associated with a website and cannot be obtained. You can try to obtain it manually"))
 		} else {
 			for _, domain := range cert.Domains {
 				if strings.Contains(domain, "*") {
-					return nil, errors.New("wildcard domains cannot use HTTP verification")
+					return nil, errors.New(r.t.Get("wildcard domains cannot use HTTP verification"))
 				}
 			}
 			conf := fmt.Sprintf("%s/server/vhost/acme/%s.conf", app.Root, cert.Website.Name)
@@ -167,12 +185,16 @@ func (r *certRepo) ObtainAuto(id uint) (*acme.Certificate, error) {
 	cert.CertURL = ssl.URL
 	cert.Cert = string(ssl.ChainPEM)
 	cert.Key = string(ssl.PrivateKey)
-	if err = app.Orm.Save(cert).Error; err != nil {
+	if err = r.db.Save(cert).Error; err != nil {
 		return nil, err
 	}
 
 	if cert.Website != nil {
 		return &ssl, r.Deploy(cert.ID, cert.WebsiteID)
+	}
+
+	if err = r.runScript(cert); err != nil {
+		return nil, err
 	}
 
 	return &ssl, nil
@@ -185,7 +207,7 @@ func (r *certRepo) ObtainManual(id uint) (*acme.Certificate, error) {
 	}
 
 	if r.client == nil {
-		return nil, errors.New("please retry the manual obtain operation")
+		return nil, errors.New(r.t.Get("please retry the manual obtain operation"))
 	}
 
 	ssl, err := r.client.ObtainCertificateManual()
@@ -196,12 +218,16 @@ func (r *certRepo) ObtainManual(id uint) (*acme.Certificate, error) {
 	cert.CertURL = ssl.URL
 	cert.Cert = string(ssl.ChainPEM)
 	cert.Key = string(ssl.PrivateKey)
-	if err = app.Orm.Save(cert).Error; err != nil {
+	if err = r.db.Save(cert).Error; err != nil {
 		return nil, err
 	}
 
 	if cert.Website != nil {
 		return &ssl, r.Deploy(cert.ID, cert.WebsiteID)
+	}
+
+	if err = r.runScript(cert); err != nil {
+		return nil, err
 	}
 
 	return &ssl, nil
@@ -220,12 +246,16 @@ func (r *certRepo) ObtainSelfSigned(id uint) error {
 
 	cert.Cert = string(crt)
 	cert.Key = string(key)
-	if err = app.Orm.Save(cert).Error; err != nil {
+	if err = r.db.Save(cert).Error; err != nil {
 		return err
 	}
 
 	if cert.Website != nil {
 		return r.Deploy(cert.ID, cert.WebsiteID)
+	}
+
+	if err = r.runScript(cert); err != nil {
+		return err
 	}
 
 	return nil
@@ -243,18 +273,18 @@ func (r *certRepo) Renew(id uint) (*acme.Certificate, error) {
 	}
 
 	if cert.CertURL == "" {
-		return nil, errors.New("this certificate has not been signed successfully and cannot be renewed")
+		return nil, errors.New(r.t.Get("this certificate has not been obtained successfully and cannot be renewed"))
 	}
 
 	if cert.DNS != nil {
-		client.UseDns(acme.DnsType(cert.DNS.Type), cert.DNS.Data)
+		client.UseDns(cert.DNS.Type, cert.DNS.Data)
 	} else {
 		if cert.Website == nil {
-			return nil, errors.New("this certificate is not associated with a website and cannot be signed. You can try to sign it manually")
+			return nil, errors.New(r.t.Get("this certificate is not associated with a website and cannot be obtained. You can try to obtain it manually"))
 		} else {
 			for _, domain := range cert.Domains {
 				if strings.Contains(domain, "*") {
-					return nil, errors.New("wildcard domains cannot use HTTP verification")
+					return nil, errors.New(r.t.Get("wildcard domains cannot use HTTP verification"))
 				}
 			}
 			conf := fmt.Sprintf("%s/server/vhost/acme/%s.conf", app.Root, cert.Website.Name)
@@ -264,13 +294,17 @@ func (r *certRepo) Renew(id uint) (*acme.Certificate, error) {
 
 	ssl, err := client.RenewCertificate(context.Background(), cert.CertURL, cert.Domains, acme.KeyType(cert.Type))
 	if err != nil {
-		return nil, err
+		// 续签失败，尝试重签
+		ssl, err = client.ObtainCertificate(context.Background(), cert.Domains, acme.KeyType(cert.Type))
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	cert.CertURL = ssl.URL
 	cert.Cert = string(ssl.ChainPEM)
 	cert.Key = string(ssl.PrivateKey)
-	if err = app.Orm.Save(cert).Error; err != nil {
+	if err = r.db.Save(cert).Error; err != nil {
 		return nil, err
 	}
 
@@ -292,7 +326,7 @@ func (r *certRepo) ManualDNS(id uint) ([]acme.DNSRecord, error) {
 		return nil, err
 	}
 
-	client.UseManualDns(len(cert.Domains))
+	client.UseManualDns()
 	records, err := client.GetDNSRecords(context.Background(), cert.Domains, acme.KeyType(cert.Type))
 	if err != nil {
 		return nil, err
@@ -314,11 +348,11 @@ func (r *certRepo) Deploy(ID, WebsiteID uint) error {
 	}
 
 	if cert.Cert == "" || cert.Key == "" {
-		return errors.New("this certificate has not been signed successfully and cannot be deployed")
+		return errors.New(r.t.Get("this certificate has not been obtained successfully and cannot be deployed"))
 	}
 
-	website, err := NewWebsiteRepo().Get(WebsiteID)
-	if err != nil {
+	website := new(biz.Website)
+	if err = r.db.Where("id", WebsiteID).First(website).Error; err != nil {
 		return err
 	}
 
@@ -336,9 +370,40 @@ func (r *certRepo) Deploy(ID, WebsiteID uint) error {
 	return nil
 }
 
+func (r *certRepo) runScript(cert *biz.Cert) error {
+	if cert.Script == "" {
+		return nil
+	}
+
+	f, err := os.CreateTemp("", "cert-deploy-*.sh")
+	if err != nil {
+		return err
+	}
+
+	// 替换变量
+	cert.Script = strings.ReplaceAll(cert.Script, "{cert}", cert.Cert)
+	cert.Script = strings.ReplaceAll(cert.Script, "{key}", cert.Key)
+
+	if _, err = f.WriteString(cert.Script); err != nil {
+		return err
+	}
+	if err = f.Chmod(0755); err != nil {
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	defer func(name string) {
+		_ = os.Remove(name)
+	}(f.Name())
+
+	_, err = shell.Execf("bash " + f.Name())
+	return err
+}
+
 func (r *certRepo) getClient(cert *biz.Cert) (*acme.Client, error) {
 	if cert.Account == nil {
-		return nil, errors.New("this certificate is not associated with an ACME account and cannot be signed")
+		return nil, errors.New(r.t.Get("this certificate is not associated with an ACME account and cannot be obtained"))
 	}
 
 	var ca string
@@ -362,5 +427,5 @@ func (r *certRepo) getClient(cert *biz.Cert) (*acme.Client, error) {
 		eab = &acme.EAB{KeyID: cert.Account.Kid, MACKey: cert.Account.HmacEncoded}
 	}
 
-	return acme.NewPrivateKeyAccount(cert.Account.Email, cert.Account.PrivateKey, ca, eab)
+	return acme.NewPrivateKeyAccount(cert.Account.Email, cert.Account.PrivateKey, ca, eab, r.log)
 }

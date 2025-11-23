@@ -1,31 +1,30 @@
 package bootstrap
 
 import (
-	"log"
-
-	"github.com/go-rat/gormstore"
-	"github.com/go-rat/sessions"
-
-	"github.com/TheTNB/panel/internal/app"
+	"github.com/knadh/koanf/v2"
+	"github.com/libtnb/gormstore"
+	"github.com/libtnb/sessions"
+	"gorm.io/gorm"
 )
 
-func initSession() {
+func NewSession(conf *koanf.Koanf, db *gorm.DB) (*sessions.Manager, error) {
 	// initialize session manager
+	lifetime := conf.Int("session.lifetime")
 	manager, err := sessions.NewManager(&sessions.ManagerOptions{
-		Key:                  app.Key,
-		Lifetime:             120,
-		GcInterval:           30,
+		Key:                  conf.MustString("app.key"),
+		Lifetime:             lifetime,
+		GcInterval:           5,
 		DisableDefaultDriver: true,
 	})
 	if err != nil {
-		log.Fatalf("failed to initialize session manager: %v", err)
+		return nil, err
 	}
 
 	// extend gorm store driver
-	store := gormstore.New(app.Orm)
+	store := gormstore.New(db)
 	if err = manager.Extend("default", store); err != nil {
-		log.Fatalf("failed to extend session manager: %v", err)
+		return nil, err
 	}
 
-	app.Session = manager
+	return manager, nil
 }

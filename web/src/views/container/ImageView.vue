@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { NButton, NDataTable, NFlex, NInput, NPopconfirm, NTag } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
 import container from '@/api/panel/container'
 import { formatDateTime } from '@/utils'
-import type { ImageList } from '@/views/container/types'
+
+const { $gettext } = useGettext()
 
 const pullModel = ref({
   name: '',
@@ -12,14 +14,7 @@ const pullModel = ref({
   password: ''
 })
 const pullModal = ref(false)
-const loading = ref(false)
-
-const data = ref<ImageList[]>([] as ImageList[])
 const selectedRowKeys = ref<any>([])
-
-const onChecked = (rowKeys: any) => {
-  selectedRowKeys.value = rowKeys
-}
 
 const columns: any = [
   { type: 'selection', fixed: 'left' },
@@ -31,14 +26,14 @@ const columns: any = [
     ellipsis: { tooltip: true }
   },
   {
-    title: '容器数',
+    title: $gettext('Container Count'),
     key: 'containers',
     width: 100,
     resizable: true,
     ellipsis: { tooltip: true }
   },
   {
-    title: '镜像',
+    title: $gettext('Image'),
     key: 'repo_tags',
     minWidth: 200,
     resizable: true,
@@ -55,14 +50,14 @@ const columns: any = [
     }
   },
   {
-    title: '大小',
+    title: $gettext('Size'),
     key: 'size',
     width: 150,
     resizable: true,
     ellipsis: { tooltip: true }
   },
   {
-    title: '创建时间',
+    title: $gettext('Creation Time'),
     key: 'created_at',
     width: 200,
     resizable: true,
@@ -71,10 +66,9 @@ const columns: any = [
     }
   },
   {
-    title: '操作',
+    title: $gettext('Actions'),
     key: 'actions',
     width: 120,
-    align: 'center',
     hideInExcel: true,
     render(row: any) {
       return [
@@ -87,7 +81,7 @@ const columns: any = [
           },
           {
             default: () => {
-              return '确定删除吗？'
+              return $gettext('Are you sure you want to delete?')
             },
             trigger: () => {
               return h(
@@ -97,7 +91,7 @@ const columns: any = [
                   type: 'error'
                 },
                 {
-                  default: () => '删除'
+                  default: () => $gettext('Delete')
                 }
               )
             }
@@ -108,134 +102,119 @@ const columns: any = [
   }
 ]
 
-const pagination = reactive({
-  page: 1,
-  pageCount: 1,
-  pageSize: 20,
-  itemCount: 0,
-  showQuickJumper: true,
-  showSizePicker: true,
-  pageSizes: [20, 50, 100, 200]
-})
-
-const onPageChange = (page: number) => {
-  pagination.page = page
-  getImageList(page, pagination.pageSize).then((res) => {
-    data.value = res.items
-    pagination.itemCount = res.total
-    pagination.pageCount = res.total / pagination.pageSize + 1
-  })
-}
-
-const onPageSizeChange = (pageSize: number) => {
-  pagination.pageSize = pageSize
-  onPageChange(1)
-}
-
-const getImageList = async (page: number, pageSize: number) => {
-  const { data } = await container.imageList(page, pageSize)
-  return data
-}
+const { loading, data, page, total, pageSize, pageCount, refresh } = usePagination(
+  (page, pageSize) => container.imageList(page, pageSize),
+  {
+    initialData: { total: 0, list: [] },
+    initialPageSize: 20,
+    total: (res: any) => res.total,
+    data: (res: any) => res.items
+  }
+)
 
 const handleDelete = async (row: any) => {
-  container.imageRemove(row.id).then(() => {
-    window.$message.success('删除成功')
-    onPageChange(pagination.page)
+  useRequest(container.imageRemove(row.id)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Delete successful'))
   })
 }
 
 const handlePrune = () => {
-  container.imagePrune().then(() => {
-    window.$message.success('清理成功')
-    onPageChange(pagination.page)
+  useRequest(container.imagePrune()).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Cleanup successful'))
   })
 }
 
 const handlePull = () => {
   loading.value = true
-  container
-    .imagePull(pullModel.value)
-    .then(() => {
-      window.$message.success('拉取成功')
-      onPageChange(pagination.page)
+  useRequest(container.imagePull(pullModel.value))
+    .onSuccess(() => {
+      refresh()
+      window.$message.success($gettext('Pull successful'))
     })
-    .finally(() => {
+    .onComplete(() => {
       loading.value = false
       pullModal.value = false
     })
 }
 
 onMounted(() => {
-  onPageChange(pagination.page)
+  refresh()
 })
 </script>
 
 <template>
-  <n-space vertical size="large">
-    <n-card rounded-10>
-      <n-space>
-        <n-button type="primary" @click="pullModal = true">拉取镜像</n-button>
-        <n-button type="primary" @click="handlePrune" ghost>清理镜像</n-button>
-      </n-space>
-    </n-card>
-    <n-card rounded-10>
-      <n-data-table
-        striped
-        remote
-        :scroll-x="1000"
-        :data="data"
-        :columns="columns"
-        :row-key="(row: any) => row.id"
-        :pagination="pagination"
-        :bordered="false"
-        :loading="false"
-        @update:page="onPageChange"
-        @update:page-size="onPageSizeChange"
-        @update:checked-row-keys="onChecked"
-      />
-    </n-card>
-  </n-space>
+  <n-flex vertical :size="20">
+    <n-flex>
+      <n-button type="primary" @click="pullModal = true">{{ $gettext('Pull Image') }}</n-button>
+      <n-button type="primary" @click="handlePrune" ghost>{{
+        $gettext('Cleanup Images')
+      }}</n-button>
+    </n-flex>
+    <n-data-table
+      striped
+      remote
+      :loading="loading"
+      :scroll-x="1000"
+      :data="data"
+      :columns="columns"
+      :row-key="(row: any) => row.id"
+      v-model:checked-row-keys="selectedRowKeys"
+      v-model:page="page"
+      v-model:pageSize="pageSize"
+      :pagination="{
+        page: page,
+        pageCount: pageCount,
+        pageSize: pageSize,
+        itemCount: total,
+        showQuickJumper: true,
+        showSizePicker: true,
+        pageSizes: [20, 50, 100, 200]
+      }"
+    />
+  </n-flex>
   <n-modal
     v-model:show="pullModal"
     preset="card"
-    title="拉取镜像"
+    :title="$gettext('Pull Image')"
     style="width: 60vw"
     size="huge"
     :bordered="false"
     :segmented="false"
   >
     <n-form :model="pullModel">
-      <n-form-item path="name" label="镜像名">
+      <n-form-item path="name" :label="$gettext('Image Name')">
         <n-input
           v-model:value="pullModel.name"
           type="text"
           @keydown.enter.prevent
-          placeholder="docker.io/php:8.3-fpm"
+          :placeholder="$gettext('docker.io/php:8.3-fpm')"
         />
       </n-form-item>
-      <n-form-item path="auth" label="验证">
+      <n-form-item path="auth" :label="$gettext('Authentication')">
         <n-switch v-model:value="pullModel.auth" />
       </n-form-item>
-      <n-form-item v-if="pullModel.auth" path="username" label="用户名">
+      <n-form-item v-if="pullModel.auth" path="username" :label="$gettext('Username')">
         <n-input
           v-model:value="pullModel.username"
           type="text"
           @keydown.enter.prevent
-          placeholder="输入用户名"
+          :placeholder="$gettext('Enter username')"
         />
       </n-form-item>
-      <n-form-item v-if="pullModel.auth" path="password" label="密码">
+      <n-form-item v-if="pullModel.auth" path="password" :label="$gettext('Password')">
         <n-input
           v-model:value="pullModel.password"
           type="password"
           show-password-on="click"
           @keydown.enter.prevent
-          placeholder="输入密码"
+          :placeholder="$gettext('Enter password')"
         />
       </n-form-item>
     </n-form>
     <n-button type="info" block :loading="loading" :disabled="loading" @click="handlePull">
-      提交
+      {{ $gettext('Submit') }}
     </n-button>
   </n-modal>
 </template>

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import type { App } from '@/views/app/types'
-import { useI18n } from 'vue-i18n'
+import { useGettext } from 'vue3-gettext'
 import app from '../../api/panel/app'
 
-const { t } = useI18n()
+const { $gettext } = useGettext()
 
 const show = defineModel<boolean>('show', { type: Boolean, required: true })
 const operation = defineModel<string>('operation', { type: String, required: true })
@@ -26,12 +26,13 @@ const options = computed(() => {
 })
 
 const handleSubmit = () => {
-  app
-    .install(info.value.slug, model.value.channel)
-    .then(() => {
-      window.$message.success(t('appIndex.alerts.install'))
+  useRequest(app.install(info.value.slug, model.value.channel))
+    .onSuccess(() => {
+      window.$message.success(
+        $gettext('Task submitted, please check the progress in background tasks')
+      )
     })
-    .finally(() => {
+    .onComplete(() => {
       doSubmit.value = false
       show.value = false
       model.value = {
@@ -44,7 +45,7 @@ const handleSubmit = () => {
 const handleChannelUpdate = (value: string) => {
   const channel = info.value.channels.find((channel) => channel.slug === value)
   if (channel) {
-    model.value.version = channel.subs[0].version
+    model.value.version = channel.version
   }
 }
 
@@ -67,17 +68,23 @@ const handleClose = () => {
     :bordered="false"
     :segmented="false"
     @close="handleClose"
+    @mask-click="handleClose"
   >
     <n-form :model="model">
-      <n-form-item path="channel" label="渠道">
+      <n-form-item path="channel" :label="$gettext('Channel')">
         <n-select
           v-model:value="model.channel"
           :options="options"
           @update-value="handleChannelUpdate"
         />
       </n-form-item>
-      <n-form-item path="channel" label="版本号">
-        <n-input v-model:value="model.version" placeholder="请选择渠道" readonly disabled />
+      <n-form-item path="channel" :label="$gettext('Version')">
+        <n-input
+          v-model:value="model.version"
+          :placeholder="$gettext('Please select a channel')"
+          readonly
+          disabled
+        />
       </n-form-item>
     </n-form>
     <n-button
@@ -87,7 +94,7 @@ const handleClose = () => {
       :disabled="model.channel == null || doSubmit"
       @click="handleSubmit"
     >
-      提交
+      {{ $gettext('Submit') }}
     </n-button>
   </n-modal>
 </template>

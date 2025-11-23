@@ -3,31 +3,30 @@ package service
 import (
 	"net/http"
 
-	"github.com/go-rat/chix"
+	"github.com/libtnb/chix"
 
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/internal/data"
-	"github.com/TheTNB/panel/internal/http/request"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/internal/http/request"
 )
 
-type Database struct {
+type DatabaseService struct {
 	databaseRepo biz.DatabaseRepo
 }
 
-func NewDatabaseService() *Database {
-	return &Database{
-		databaseRepo: data.NewDatabaseRepo(),
+func NewDatabaseService(database biz.DatabaseRepo) *DatabaseService {
+	return &DatabaseService{
+		databaseRepo: database,
 	}
 }
 
-func (s *Database) List(w http.ResponseWriter, r *http.Request) {
+func (s *DatabaseService) List(w http.ResponseWriter, r *http.Request) {
 	req, err := Bind[request.Paginate](r)
 	if err != nil {
 		Error(w, http.StatusUnprocessableEntity, "%v", err)
 		return
 	}
 
-	certs, total, err := s.databaseRepo.List(req.Page, req.Limit)
+	databases, total, err := s.databaseRepo.List(req.Page, req.Limit)
 	if err != nil {
 		Error(w, http.StatusInternalServerError, "%v", err)
 		return
@@ -35,11 +34,11 @@ func (s *Database) List(w http.ResponseWriter, r *http.Request) {
 
 	Success(w, chix.M{
 		"total": total,
-		"items": certs,
+		"items": databases,
 	})
 }
 
-func (s *Database) Create(w http.ResponseWriter, r *http.Request) {
+func (s *DatabaseService) Create(w http.ResponseWriter, r *http.Request) {
 	req, err := Bind[request.DatabaseCreate](r)
 	if err != nil {
 		Error(w, http.StatusUnprocessableEntity, "%v", err)
@@ -54,14 +53,14 @@ func (s *Database) Create(w http.ResponseWriter, r *http.Request) {
 	Success(w, nil)
 }
 
-func (s *Database) Update(w http.ResponseWriter, r *http.Request) {
-	req, err := Bind[request.DatabaseUpdate](r)
+func (s *DatabaseService) Delete(w http.ResponseWriter, r *http.Request) {
+	req, err := Bind[request.DatabaseDelete](r)
 	if err != nil {
 		Error(w, http.StatusUnprocessableEntity, "%v", err)
 		return
 	}
 
-	if err = s.databaseRepo.Update(req); err != nil {
+	if err = s.databaseRepo.Delete(req.ServerID, req.Name); err != nil {
 		Error(w, http.StatusInternalServerError, "%v", err)
 		return
 	}
@@ -69,14 +68,14 @@ func (s *Database) Update(w http.ResponseWriter, r *http.Request) {
 	Success(w, nil)
 }
 
-func (s *Database) Delete(w http.ResponseWriter, r *http.Request) {
-	req, err := Bind[request.ID](r)
+func (s *DatabaseService) Comment(w http.ResponseWriter, r *http.Request) {
+	req, err := Bind[request.DatabaseComment](r)
 	if err != nil {
 		Error(w, http.StatusUnprocessableEntity, "%v", err)
 		return
 	}
 
-	if err = s.databaseRepo.Delete(req.ID); err != nil {
+	if err = s.databaseRepo.Comment(req); err != nil {
 		Error(w, http.StatusInternalServerError, "%v", err)
 		return
 	}

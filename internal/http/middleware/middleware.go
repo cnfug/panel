@@ -3,30 +3,72 @@ package middleware
 import (
 	"log/slog"
 	"net/http"
+	"path/filepath"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	sessionmiddleware "github.com/go-rat/sessions/middleware"
-	"github.com/golang-cz/httplog"
+	"github.com/go-chi/httplog/v3"
+	"github.com/google/wire"
+	"github.com/knadh/koanf/v2"
+	"github.com/leonelquinteros/gotext"
+	"github.com/libtnb/sessions"
+	sessionmiddleware "github.com/libtnb/sessions/middleware"
+	"gopkg.in/natefinch/lumberjack.v2"
 
-	"github.com/TheTNB/panel/internal/app"
+	"github.com/acepanel/panel/internal/app"
+	"github.com/acepanel/panel/internal/biz"
 )
 
-// GlobalMiddleware is a collection of global middleware that will be applied to every request.
-func GlobalMiddleware() []func(http.Handler) http.Handler {
+var ProviderSet = wire.NewSet(NewMiddlewares)
+
+type Middlewares struct {
+	conf      *koanf.Koanf
+	log       *slog.Logger
+	session   *sessions.Manager
+	appRepo   biz.AppRepo
+	userToken biz.UserTokenRepo
+}
+
+func NewMiddlewares(conf *koanf.Koanf, session *sessions.Manager, appRepo biz.AppRepo, userToken biz.UserTokenRepo) *Middlewares {
+	ljLogger := &lumberjack.Logger{
+		Filename: filepath.Join(app.Root, "panel/storage/logs/http.log"),
+		MaxSize:  10,
+		MaxAge:   30,
+		Compress: true,
+	}
+
+	return &Middlewares{
+		conf:      conf,
+		log:       slog.New(slog.NewJSONHandler(ljLogger, &slog.HandlerOptions{Level: slog.LevelInfo})),
+		session:   session,
+		appRepo:   appRepo,
+		userToken: userToken,
+	}
+}
+
+// Globals is a collection of global middleware that will be applied to every request.
+func (r *Middlewares) Globals(t *gotext.Locale, mux *chi.Mux) []func(http.Handler) http.Handler {
 	return []func(http.Handler) http.Handler{
-		sessionmiddleware.StartSession(app.Session),
-		//middleware.SupressNotFound(app.Http),// bug https://github.com/go-chi/chi/pull/940
-		middleware.CleanPath,
-		middleware.StripSlashes,
-		middleware.Compress(5),
-		httplog.RequestLogger(app.Logger, &httplog.Options{
+		middleware.Recoverer,
+		//middleware.SupressNotFound(mux),// bug https://github.com/go-chi/chi/pull/940
+		httplog.RequestLogger(r.log, &httplog.Options{
 			Level:             slog.LevelInfo,
 			LogRequestHeaders: []string{"User-Agent"},
+			Skip: func(req *http.Request, respStatus int) bool {
+				return respStatus == 404 || respStatus == 405
+			},
+			LogRequestBody: func(req *http.Request) bool {
+				return req.Header.Get("X-Debug-Request") == "1"
+			},
+			LogResponseBody: func(req *http.Request) bool {
+				return req.Header.Get("X-Debug-Response") == "1"
+			},
 		}),
-		middleware.Recoverer,
-		Status,
-		Entrance,
-		MustLogin,
-		MustInstall,
+		middleware.Compress(5),
+		sessionmiddleware.StartSession(r.session),
+		Status(t),
+		Entrance(t, r.conf, r.session),
+		MustLogin(t, r.conf, r.session, r.userToken),
+		MustInstall(t, r.appRepo),
 	}
 }

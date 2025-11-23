@@ -3,20 +3,19 @@ package service
 import (
 	"net/http"
 
-	"github.com/go-rat/chix"
+	"github.com/libtnb/chix"
 
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/internal/data"
-	"github.com/TheTNB/panel/internal/http/request"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/internal/http/request"
 )
 
 type ContainerImageService struct {
 	containerImageRepo biz.ContainerImageRepo
 }
 
-func NewContainerImageService() *ContainerImageService {
+func NewContainerImageService(containerImage biz.ContainerImageRepo) *ContainerImageService {
 	return &ContainerImageService{
-		containerImageRepo: data.NewContainerImageRepo(),
+		containerImageRepo: containerImage,
 	}
 }
 

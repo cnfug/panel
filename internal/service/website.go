@@ -4,13 +4,12 @@ import (
 	"net/http"
 	"path/filepath"
 
-	"github.com/go-rat/chix"
+	"github.com/libtnb/chix"
 
-	"github.com/TheTNB/panel/internal/app"
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/internal/data"
-	"github.com/TheTNB/panel/internal/http/request"
-	"github.com/TheTNB/panel/pkg/io"
+	"github.com/acepanel/panel/internal/app"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/internal/http/request"
+	"github.com/acepanel/panel/pkg/io"
 )
 
 type WebsiteService struct {
@@ -18,11 +17,21 @@ type WebsiteService struct {
 	settingRepo biz.SettingRepo
 }
 
-func NewWebsiteService() *WebsiteService {
+func NewWebsiteService(website biz.WebsiteRepo, setting biz.SettingRepo) *WebsiteService {
 	return &WebsiteService{
-		websiteRepo: data.NewWebsiteRepo(),
-		settingRepo: data.NewSettingRepo(),
+		websiteRepo: website,
+		settingRepo: setting,
 	}
+}
+
+func (s *WebsiteService) GetRewrites(w http.ResponseWriter, r *http.Request) {
+	rewrites, err := s.websiteRepo.GetRewrites()
+	if err != nil {
+		Error(w, http.StatusInternalServerError, "%v", err)
+		return
+	}
+
+	Success(w, rewrites)
 }
 
 func (s *WebsiteService) GetDefaultConfig(w http.ResponseWriter, r *http.Request) {
@@ -51,6 +60,22 @@ func (s *WebsiteService) UpdateDefaultConfig(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err = s.websiteRepo.UpdateDefaultConfig(req); err != nil {
+		Error(w, http.StatusInternalServerError, "%v", err)
+		return
+	}
+
+	Success(w, nil)
+}
+
+// UpdateCert 用于自动化工具更新证书
+func (s *WebsiteService) UpdateCert(w http.ResponseWriter, r *http.Request) {
+	req, err := Bind[request.WebsiteUpdateCert](r)
+	if err != nil {
+		Error(w, http.StatusUnprocessableEntity, "%v", err)
+		return
+	}
+
+	if err = s.websiteRepo.UpdateCert(req); err != nil {
 		Error(w, http.StatusInternalServerError, "%v", err)
 		return
 	}

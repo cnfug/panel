@@ -1,12 +1,14 @@
 <script lang="ts" setup>
+import { translateTitle } from '@/locales/menu'
 import { usePermissionStore, useTabStore, useThemeStore } from '@/store'
 import { isUrl, renderIcon } from '@/utils'
-import type { MenuInst, MenuOption } from 'naive-ui'
+
+import { MenuInst, MenuOption, useThemeVars } from 'naive-ui'
 import type { VNodeChild } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { RouterLink } from 'vue-router'
 import type { Meta, RouteType } from '~/types/router'
 
-const { t } = useI18n()
+const themeVars = useThemeVars()
 const router = useRouter()
 const currentRoute = useRoute()
 const permissionStore = usePermissionStore()
@@ -20,7 +22,7 @@ watch(currentRoute, async () => {
 })
 
 const menuOptions = computed(() => {
-  return permissionStore.menus.map((item) => getMenuItem(item)).sort((a, b) => a.order - b.order)
+  return permissionStore.menus.map((item) => getMenuItem(item))
 })
 
 function resolvePath(basePath: string, path: string) {
@@ -32,51 +34,66 @@ function resolvePath(basePath: string, path: string) {
 }
 
 type MenuItem = MenuOption & {
-  label: string
+  label: () => VNodeChild
   key: string
   path: string
-  order: number
   children?: Array<MenuItem>
 }
 
 function getMenuItem(route: RouteType, basePath = ''): MenuItem {
   let menuItem: MenuItem = {
-    label: t(route.meta?.title || route.name),
+    label: () =>
+      h(
+        RouterLink,
+        {
+          to: { name: route.name as string }
+        },
+        {
+          default: () => (route.meta?.title ? translateTitle(route.meta.title) : route.name)
+        }
+      ),
     key: route.name,
     path: resolvePath(basePath, route.path),
-    icon: getIcon(route.meta),
-    order: route.meta?.order || 0
+    icon: getIcon(route.meta)
   }
 
   const visibleChildren = route.children
-    ? route.children.filter((item: RouteType) => item.name && !item.isHidden)
+    ? route.children.filter(
+        (item: RouteType) =>
+          item.name && !item.isHidden && !permissionStore.hiddenRoutes.includes(item.name)
+      )
     : []
 
   if (!visibleChildren.length) return menuItem
 
-  if (visibleChildren.length === 1) {
+  if (visibleChildren.length === 1 && visibleChildren[0]) {
     // 单个子路由处理
     const singleRoute = visibleChildren[0]
     menuItem = {
-      label: t(singleRoute.meta?.title || singleRoute.name),
+      label: () =>
+        h(
+          RouterLink,
+          {
+            to: { name: singleRoute.name as string }
+          },
+          {
+            default: () =>
+              singleRoute.meta?.title ? translateTitle(singleRoute.meta.title) : singleRoute?.name
+          }
+        ),
       key: singleRoute.name,
       path: resolvePath(menuItem.path, singleRoute.path),
-      icon: getIcon(singleRoute.meta),
-      order: menuItem.order
+      icon: getIcon(singleRoute.meta)
     }
     const visibleItems = singleRoute.children
       ? singleRoute.children.filter((item: RouteType) => item.name && !item.isHidden)
       : []
 
-    if (visibleItems.length === 1) menuItem = getMenuItem(visibleItems[0], menuItem.path)
+    if (visibleItems.length === 1) menuItem = getMenuItem(visibleItems[0]!, menuItem.path)
     else if (visibleItems.length > 1)
-      menuItem.children = visibleItems
-        .map((item) => getMenuItem(item, menuItem.path))
-        .sort((a, b) => a.order - b.order)
+      menuItem.children = visibleItems.map((item) => getMenuItem(item, menuItem.path))
   } else {
-    menuItem.children = visibleChildren
-      .map((item) => getMenuItem(item, menuItem.path))
-      .sort((a, b) => a.order - b.order)
+    menuItem.children = visibleChildren.map((item) => getMenuItem(item, menuItem.path))
   }
 
   return menuItem
@@ -126,8 +143,8 @@ function handleMenuSelect(key: string, item: MenuOption) {
   .n-menu-item-content--child-active,
   .n-menu-item-content--selected {
     .n-menu-item-content__icon {
-      border-color: var(--primary-color);
-      background-color: var(--primary-color);
+      border-color: v-bind('themeVars.primaryColor');
+      background-color: v-bind('themeVars.primaryColor');
 
       i {
         color: #fff;

@@ -1,56 +1,71 @@
 package service
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
+	stdos "os"
 	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/go-rat/utils/collect"
-	"github.com/go-rat/utils/hash"
-	"github.com/go-rat/utils/str"
+	"github.com/knadh/koanf/v2"
+	"github.com/leonelquinteros/gotext"
+	"github.com/libtnb/utils/collect"
+	"github.com/libtnb/utils/hash"
+	"github.com/libtnb/utils/str"
 	"github.com/spf13/cast"
 	"github.com/urfave/cli/v3"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 	"gorm.io/gorm"
 
-	"github.com/TheTNB/panel/internal/app"
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/internal/data"
-	"github.com/TheTNB/panel/internal/http/request"
-	"github.com/TheTNB/panel/pkg/api"
-	"github.com/TheTNB/panel/pkg/cert"
-	"github.com/TheTNB/panel/pkg/firewall"
-	"github.com/TheTNB/panel/pkg/io"
-	"github.com/TheTNB/panel/pkg/ntp"
-	"github.com/TheTNB/panel/pkg/os"
-	"github.com/TheTNB/panel/pkg/systemctl"
-	"github.com/TheTNB/panel/pkg/tools"
-	"github.com/TheTNB/panel/pkg/types"
+	"github.com/acepanel/panel/internal/app"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/internal/http/request"
+	"github.com/acepanel/panel/pkg/api"
+	"github.com/acepanel/panel/pkg/cert"
+	"github.com/acepanel/panel/pkg/firewall"
+	"github.com/acepanel/panel/pkg/io"
+	"github.com/acepanel/panel/pkg/ntp"
+	"github.com/acepanel/panel/pkg/os"
+	"github.com/acepanel/panel/pkg/systemctl"
+	"github.com/acepanel/panel/pkg/tools"
+	"github.com/acepanel/panel/pkg/types"
 )
 
 type CliService struct {
-	hr          string
-	api         *api.API
-	appRepo     biz.AppRepo
-	userRepo    biz.UserRepo
-	settingRepo biz.SettingRepo
-	backupRepo  biz.BackupRepo
-	websiteRepo biz.WebsiteRepo
-	hash        hash.Hasher
+	hr                 string
+	t                  *gotext.Locale
+	api                *api.API
+	conf               *koanf.Koanf
+	db                 *gorm.DB
+	appRepo            biz.AppRepo
+	cacheRepo          biz.CacheRepo
+	userRepo           biz.UserRepo
+	settingRepo        biz.SettingRepo
+	backupRepo         biz.BackupRepo
+	websiteRepo        biz.WebsiteRepo
+	databaseServerRepo biz.DatabaseServerRepo
+	hash               hash.Hasher
 }
 
-func NewCliService() *CliService {
+func NewCliService(t *gotext.Locale, conf *koanf.Koanf, db *gorm.DB, appRepo biz.AppRepo, cache biz.CacheRepo, user biz.UserRepo, setting biz.SettingRepo, backup biz.BackupRepo, website biz.WebsiteRepo, databaseServer biz.DatabaseServerRepo) *CliService {
 	return &CliService{
-		hr:          `+----------------------------------------------------`,
-		api:         api.NewAPI(app.Version),
-		appRepo:     data.NewAppRepo(),
-		userRepo:    data.NewUserRepo(),
-		settingRepo: data.NewSettingRepo(),
-		backupRepo:  data.NewBackupRepo(),
-		websiteRepo: data.NewWebsiteRepo(),
-		hash:        hash.NewArgon2id(),
+		hr:                 `+----------------------------------------------------`,
+		api:                api.NewAPI(app.Version, app.Locale),
+		t:                  t,
+		conf:               conf,
+		db:                 db,
+		appRepo:            appRepo,
+		cacheRepo:          cache,
+		userRepo:           user,
+		settingRepo:        setting,
+		backupRepo:         backup,
+		websiteRepo:        website,
+		databaseServerRepo: databaseServer,
+		hash:               hash.NewArgon2id(),
 	}
 }
 
@@ -59,7 +74,7 @@ func (s *CliService) Restart(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	fmt.Println("面板服务已重启")
+	fmt.Println(s.t.Get("Panel service restarted"))
 	return nil
 }
 
@@ -68,7 +83,7 @@ func (s *CliService) Stop(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	fmt.Println("面板服务已停止")
+	fmt.Println(s.t.Get("Panel service stopped"))
 	return nil
 }
 
@@ -77,102 +92,112 @@ func (s *CliService) Start(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	fmt.Println("面板服务已启动")
+	fmt.Println(s.t.Get("Panel service started"))
 	return nil
 }
 
 func (s *CliService) Update(ctx context.Context, cmd *cli.Command) error {
-	panel, err := s.api.LatestVersion()
+	channel, _ := s.settingRepo.Get(biz.SettingKeyChannel)
+	panel, err := s.api.LatestVersion(channel)
 	if err != nil {
-		return fmt.Errorf("获取最新版本失败：%v", err)
+		return errors.New(s.t.Get("Failed to get latest version: %v", err))
 	}
 
 	download := collect.First(panel.Downloads)
 	if download == nil {
-		return fmt.Errorf("下载地址为空")
+		return errors.New(s.t.Get("Download URL is empty"))
 	}
-	ver, url, checksum := panel.Version, download.URL, download.Checksum
 
-	return s.settingRepo.UpdatePanel(ver, url, checksum)
+	return s.backupRepo.UpdatePanel(panel.Version, download.URL, download.Checksum)
+}
+
+func (s *CliService) Sync(ctx context.Context, cmd *cli.Command) error {
+	if err := s.cacheRepo.UpdateApps(); err != nil {
+		return errors.New(s.t.Get("Failed to synchronize app data: %v", err))
+	}
+	if err := s.cacheRepo.UpdateRewrites(); err != nil {
+		return errors.New(s.t.Get("Failed to synchronize rewrite rules: %v", err))
+	}
+
+	fmt.Println(s.t.Get("Data synchronized successfully"))
+	return nil
 }
 
 func (s *CliService) Fix(ctx context.Context, cmd *cli.Command) error {
-	return s.settingRepo.FixPanel()
+	return s.backupRepo.FixPanel()
 }
 
 func (s *CliService) Info(ctx context.Context, cmd *cli.Command) error {
+	// TODO 未来加权限设置之后这里需要优化
 	user := new(biz.User)
-	if err := app.Orm.Where("id", 1).First(user).Error; err != nil {
-		return fmt.Errorf("获取管理员信息失败：%v", err)
+	if err := s.db.First(user).Error; err != nil {
+		return errors.New(s.t.Get("Failed to get user info: %v", err))
 	}
 
 	password := str.Random(16)
 	hashed, err := s.hash.Make(password)
 	if err != nil {
-		return fmt.Errorf("密码生成失败：%v", err)
+		return errors.New(s.t.Get("Failed to generate password: %v", err))
 	}
 	user.Username = str.Random(8)
 	user.Password = hashed
-	if user.Email == "" {
-		user.Email = str.Random(8) + "@example.com"
-	}
 
-	if err = app.Orm.Save(user).Error; err != nil {
-		return fmt.Errorf("管理员信息保存失败：%v", err)
+	if err = s.db.Save(user).Error; err != nil {
+		return errors.New(s.t.Get("Failed to save user info: %v", err))
 	}
 
 	protocol := "http"
-	if app.Conf.Bool("http.tls") {
+	if s.conf.Bool("http.tls") {
 		protocol = "https"
 	}
 
-	port := app.Conf.String("http.port")
+	port := s.conf.String("http.port")
 	if port == "" {
-		return fmt.Errorf("端口获取失败")
+		return errors.New(s.t.Get("Failed to get port"))
 	}
-	entrance := app.Conf.String("http.entrance")
+	entrance := s.conf.String("http.entrance")
 	if entrance == "" {
-		return fmt.Errorf("入口获取失败")
+		return errors.New(s.t.Get("Failed to get entrance"))
 	}
 
-	fmt.Printf("用户名: %s\n", user.Username)
-	fmt.Printf("密码: %s\n", password)
-	fmt.Printf("端口: %s\n", port)
-	fmt.Printf("入口: %s\n", entrance)
+	fmt.Println(s.t.Get("Username: %s", user.Username))
+	fmt.Println(s.t.Get("Password: %s", password))
+	fmt.Println(s.t.Get("Port: %s", port))
+	fmt.Println(s.t.Get("Entrance: %s", entrance))
 
 	lv4, err := tools.GetLocalIPv4()
 	if err == nil {
-		fmt.Printf("本地IPv4地址: %s://%s:%s%s\n", protocol, lv4, port, entrance)
+		fmt.Println(s.t.Get("Local IPv4: %s://%s:%s%s", protocol, lv4, port, entrance))
 	}
 	lv6, err := tools.GetLocalIPv6()
 	if err == nil {
-		fmt.Printf("本地IPv6地址: %s://[%s]:%s%s\n", protocol, lv6, port, entrance)
+		fmt.Println(s.t.Get("Local IPv6: %s://[%s]:%s%s", protocol, lv6, port, entrance))
 	}
 	rv4, err := tools.GetPublicIPv4()
 	if err == nil {
-		fmt.Printf("公网IPv4地址: %s://%s:%s%s\n", protocol, rv4, port, entrance)
+		fmt.Println(s.t.Get("Public IPv4: %s://%s:%s%s", protocol, rv4, port, entrance))
 	}
 	rv6, err := tools.GetPublicIPv6()
 	if err == nil {
-		fmt.Printf("公网IPv6地址: %s://[%s]:%s%s\n", protocol, rv6, port, entrance)
+		fmt.Println(s.t.Get("Public IPv6: %s://[%s]:%s%s", protocol, rv6, port, entrance))
 	}
 
-	fmt.Println("请根据自身网络情况自行选择合适的地址访问面板")
-	fmt.Printf("如无法访问，请检查服务器运营商安全组和防火墙是否放行%s端口\n", port)
-	fmt.Println("若仍无法访问，可尝试运行 panel-cli https off 关闭面板HTTPS")
-	fmt.Println("警告：关闭面板HTTPS后，面板安全性将大大降低，请谨慎操作")
+	fmt.Println(s.t.Get("Please choose the appropriate address to access the panel based on your network situation"))
+	fmt.Println(s.t.Get("If you cannot access, please check whether the server's security group and firewall allow port %s", port))
+	fmt.Println(s.t.Get("If you still cannot access, try running panel-cli https off to turn off panel HTTPS"))
+	fmt.Println(s.t.Get("Warning: After turning off panel HTTPS, the security of the panel will be greatly reduced, please operate with caution"))
 
 	return nil
 }
 
 func (s *CliService) UserList(ctx context.Context, cmd *cli.Command) error {
 	users := make([]biz.User, 0)
-	if err := app.Orm.Find(&users).Error; err != nil {
-		return fmt.Errorf("获取用户列表失败：%v", err)
+	if err := s.db.Find(&users).Error; err != nil {
+		return errors.New(s.t.Get("Failed to get user list: %v", err))
 	}
 
 	for _, user := range users {
-		fmt.Printf("ID: %d, 用户名: %s, 邮箱: %s, 创建日期: %s\n", user.ID, user.Username, user.Email, user.CreatedAt.Format(time.DateTime))
+		fmt.Println(s.t.Get("ID: %d, Username: %s, Email: %s, Created At: %s", user.ID, user.Username, user.Email, user.CreatedAt.Format(time.DateTime)))
 	}
 
 	return nil
@@ -183,26 +208,26 @@ func (s *CliService) UserName(ctx context.Context, cmd *cli.Command) error {
 	oldUsername := cmd.Args().Get(0)
 	newUsername := cmd.Args().Get(1)
 	if oldUsername == "" {
-		return fmt.Errorf("旧用户名不能为空")
+		return errors.New(s.t.Get("Old username cannot be empty"))
 	}
 	if newUsername == "" {
-		return fmt.Errorf("新用户名不能为空")
+		return errors.New(s.t.Get("New username cannot be empty"))
 	}
 
-	if err := app.Orm.Where("username", oldUsername).First(user).Error; err != nil {
+	if err := s.db.Where("username", oldUsername).First(user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("用户不存在")
+			return errors.New(s.t.Get("User not exists"))
 		} else {
-			return fmt.Errorf("获取用户失败：%v", err)
+			return errors.New(s.t.Get("Failed to get user: %v", err))
 		}
 	}
 
 	user.Username = newUsername
-	if err := app.Orm.Save(user).Error; err != nil {
-		return fmt.Errorf("用户名修改失败：%v", err)
+	if err := s.db.Save(user).Error; err != nil {
+		return errors.New(s.t.Get("Failed to change username: %v", err))
 	}
 
-	fmt.Printf("用户 %s 修改为 %s 成功\n", oldUsername, newUsername)
+	fmt.Println(s.t.Get("Username %s changed to %s successfully", oldUsername, newUsername))
 	return nil
 }
 
@@ -211,30 +236,73 @@ func (s *CliService) UserPassword(ctx context.Context, cmd *cli.Command) error {
 	username := cmd.Args().Get(0)
 	password := cmd.Args().Get(1)
 	if username == "" || password == "" {
-		return fmt.Errorf("用户名和密码不能为空")
+		return errors.New(s.t.Get("Username and password cannot be empty"))
 	}
 	if len(password) < 6 {
-		return fmt.Errorf("密码长度不能小于6")
+		return errors.New(s.t.Get("Password length cannot be less than 6"))
 	}
 
-	if err := app.Orm.Where("username", username).First(user).Error; err != nil {
+	if err := s.db.Where("username", username).First(user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("用户不存在")
+			return errors.New(s.t.Get("User not exists"))
 		} else {
-			return fmt.Errorf("获取用户失败：%v", err)
+			return errors.New(s.t.Get("Failed to get user: %v", err))
 		}
 	}
 
 	hashed, err := s.hash.Make(password)
 	if err != nil {
-		return fmt.Errorf("密码生成失败：%v", err)
+		return errors.New(s.t.Get("Failed to generate password: %v", err))
 	}
 	user.Password = hashed
-	if err = app.Orm.Save(user).Error; err != nil {
-		return fmt.Errorf("密码修改失败：%v", err)
+	if err = s.db.Save(user).Error; err != nil {
+		return errors.New(s.t.Get("Failed to change password: %v", err))
 	}
 
-	fmt.Printf("用户 %s 密码修改成功\n", username)
+	fmt.Println(s.t.Get("Password for user %s changed successfully", username))
+	return nil
+}
+
+func (s *CliService) UserTwoFA(ctx context.Context, cmd *cli.Command) error {
+	user := new(biz.User)
+	username := cmd.Args().Get(0)
+	if username == "" {
+		return errors.New(s.t.Get("Username cannot be empty"))
+	}
+
+	if err := s.db.Where("username", username).First(user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New(s.t.Get("User not exists"))
+		} else {
+			return errors.New(s.t.Get("Failed to get user: %v", err))
+		}
+	}
+
+	// 已开启，关闭2FA
+	if user.TwoFA != "" {
+		user.TwoFA = ""
+		if err := s.db.Save(user).Error; err != nil {
+			return errors.New(s.t.Get("Failed to change 2FA status: %v", err))
+		}
+		fmt.Println(s.t.Get("2FA disabled for user %s", username))
+		return nil
+	}
+	// 未开启，开启2FA
+	_, url, secret, err := s.userRepo.GenerateTwoFA(user.ID)
+	if err != nil {
+		return errors.New(s.t.Get("Failed to generate 2FA: %v", err))
+	}
+	fmt.Println(s.t.Get("2FA url: %s", url))
+	reader := bufio.NewReader(stdos.Stdin)
+	fmt.Print(s.t.Get("Please enter the 2FA code: "))
+	code, err := reader.ReadString('\n')
+	if err != nil {
+		return errors.New(s.t.Get("Failed to read input: %v", err))
+	}
+	if err = s.userRepo.UpdateTwoFA(user.ID, strings.TrimSpace(code), secret); err != nil {
+		return errors.New(s.t.Get("Failed to update 2FA: %v", err))
+	}
+
 	return nil
 }
 
@@ -259,7 +327,7 @@ func (s *CliService) HTTPSOn(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	fmt.Println("已开启HTTPS")
+	fmt.Println(s.t.Get("HTTPS enabled"))
 	return s.Restart(ctx, cmd)
 }
 
@@ -284,7 +352,7 @@ func (s *CliService) HTTPSOff(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	fmt.Println("已关闭HTTPS")
+	fmt.Println(s.t.Get("HTTPS disabled"))
 	return s.Restart(ctx, cmd)
 }
 
@@ -315,7 +383,7 @@ func (s *CliService) HTTPSGenerate(ctx context.Context, cmd *cli.Command) error 
 		return err
 	}
 
-	fmt.Println("已生成HTTPS证书")
+	fmt.Println(s.t.Get("HTTPS certificate generated"))
 	return s.Restart(ctx, cmd)
 }
 
@@ -340,8 +408,8 @@ func (s *CliService) EntranceOn(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	fmt.Println("已开启访问入口")
-	fmt.Printf("访问入口：%s\n", config.HTTP.Entrance)
+	fmt.Println(s.t.Get("Entrance enabled"))
+	fmt.Println(s.t.Get("Entrance: %s", config.HTTP.Entrance))
 	return s.Restart(ctx, cmd)
 }
 
@@ -366,14 +434,89 @@ func (s *CliService) EntranceOff(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	fmt.Println("已关闭访问入口")
+	fmt.Println(s.t.Get("Entrance disabled"))
+	return s.Restart(ctx, cmd)
+}
+
+func (s *CliService) BindDomainOff(ctx context.Context, cmd *cli.Command) error {
+	config := new(types.PanelConfig)
+	raw, err := io.Read("/usr/local/etc/panel/config.yml")
+	if err != nil {
+		return err
+	}
+	if err = yaml.Unmarshal([]byte(raw), config); err != nil {
+		return err
+	}
+
+	config.HTTP.BindDomain = nil
+
+	encoded, err := yaml.Marshal(config)
+	if err != nil {
+		return err
+	}
+
+	if err = io.Write("/usr/local/etc/panel/config.yml", string(encoded), 0700); err != nil {
+		return err
+	}
+
+	fmt.Println(s.t.Get("Bind domain disabled"))
+	return s.Restart(ctx, cmd)
+}
+
+func (s *CliService) BindIPOff(ctx context.Context, cmd *cli.Command) error {
+	config := new(types.PanelConfig)
+	raw, err := io.Read("/usr/local/etc/panel/config.yml")
+	if err != nil {
+		return err
+	}
+	if err = yaml.Unmarshal([]byte(raw), config); err != nil {
+		return err
+	}
+
+	config.HTTP.BindIP = nil
+
+	encoded, err := yaml.Marshal(config)
+	if err != nil {
+		return err
+	}
+
+	if err = io.Write("/usr/local/etc/panel/config.yml", string(encoded), 0700); err != nil {
+		return err
+	}
+
+	fmt.Println(s.t.Get("Bind IP disabled"))
+	return s.Restart(ctx, cmd)
+}
+
+func (s *CliService) BindUAOff(ctx context.Context, cmd *cli.Command) error {
+	config := new(types.PanelConfig)
+	raw, err := io.Read("/usr/local/etc/panel/config.yml")
+	if err != nil {
+		return err
+	}
+	if err = yaml.Unmarshal([]byte(raw), config); err != nil {
+		return err
+	}
+
+	config.HTTP.BindUA = nil
+
+	encoded, err := yaml.Marshal(config)
+	if err != nil {
+		return err
+	}
+
+	if err = io.Write("/usr/local/etc/panel/config.yml", string(encoded), 0700); err != nil {
+		return err
+	}
+
+	fmt.Println(s.t.Get("Bind UA disabled"))
 	return s.Restart(ctx, cmd)
 }
 
 func (s *CliService) Port(ctx context.Context, cmd *cli.Command) error {
 	port := cast.ToUint(cmd.Args().First())
 	if port < 1 || port > 65535 {
-		return fmt.Errorf("端口范围错误")
+		return errors.New(s.t.Get("Port range error"))
 	}
 
 	config := new(types.PanelConfig)
@@ -387,7 +530,7 @@ func (s *CliService) Port(ctx context.Context, cmd *cli.Command) error {
 
 	if port != config.HTTP.Port {
 		if os.TCPPortInUse(port) {
-			return errors.New("端口已被占用")
+			return errors.New(s.t.Get("Port already in use"))
 		}
 	}
 
@@ -399,23 +542,25 @@ func (s *CliService) Port(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// 放行端口
-	fw := firewall.NewFirewall()
-	err = fw.Port(firewall.FireInfo{
-		Type:      firewall.TypeNormal,
-		PortStart: uint(config.HTTP.Port),
-		PortEnd:   uint(config.HTTP.Port),
-		Direction: firewall.DirectionIn,
-		Strategy:  firewall.StrategyAccept,
-	}, firewall.OperationAdd)
-	if err != nil {
-		return err
+	if ok, _ := systemctl.IsEnabled("firewalld"); ok {
+		fw := firewall.NewFirewall()
+		err = fw.Port(firewall.FireInfo{
+			Type:      firewall.TypeNormal,
+			PortStart: port,
+			PortEnd:   port,
+			Direction: firewall.DirectionIn,
+			Strategy:  firewall.StrategyAccept,
+		}, firewall.OperationAdd)
+		if err != nil {
+			return err
+		}
 	}
 
 	if err = io.Write("/usr/local/etc/panel/config.yml", string(encoded), 0700); err != nil {
 		return err
 	}
 
-	fmt.Printf("已修改端口为 %d\n", port)
+	fmt.Println(s.t.Get("Port changed to %d", port))
 	return s.Restart(ctx, cmd)
 }
 
@@ -434,7 +579,7 @@ func (s *CliService) WebsiteCreate(ctx context.Context, cmd *cli.Command) error 
 		return err
 	}
 
-	fmt.Printf("网站 %s 创建成功\n", website.Name)
+	fmt.Println(s.t.Get("Website %s created successfully", website.Name))
 	return nil
 }
 
@@ -451,7 +596,7 @@ func (s *CliService) WebsiteRemove(ctx context.Context, cmd *cli.Command) error 
 		return err
 	}
 
-	fmt.Printf("网站 %s 移除成功\n", website.Name)
+	fmt.Println(s.t.Get("Website %s removed successfully", website.Name))
 	return nil
 }
 
@@ -470,56 +615,89 @@ func (s *CliService) WebsiteDelete(ctx context.Context, cmd *cli.Command) error 
 		return err
 	}
 
-	fmt.Printf("网站 %s 删除成功\n", website.Name)
+	fmt.Println(s.t.Get("Website %s deleted successfully", website.Name))
 	return nil
 }
 
 func (s *CliService) WebsiteWrite(ctx context.Context, cmd *cli.Command) error {
-	println("not support")
+	fmt.Println(s.t.Get("Not supported"))
+	return nil
+}
+
+func (s *CliService) DatabaseAddServer(ctx context.Context, cmd *cli.Command) error {
+	req := &request.DatabaseServerCreate{
+		Type:     cmd.String("type"),
+		Name:     cmd.String("name"),
+		Host:     cmd.String("host"),
+		Port:     uint(cmd.Uint("port")),
+		Username: cmd.String("username"),
+		Password: cmd.String("password"),
+		Remark:   cmd.String("remark"),
+	}
+
+	if err := s.databaseServerRepo.Create(req); err != nil {
+		return err
+	}
+
+	fmt.Println(s.t.Get("Database server %s added successfully", cmd.String("name")))
+	return nil
+}
+
+func (s *CliService) DatabaseDeleteServer(ctx context.Context, cmd *cli.Command) error {
+	server, err := s.databaseServerRepo.GetByName(cmd.String("name"))
+	if err != nil {
+		return err
+	}
+
+	if err = s.databaseServerRepo.Delete(server.ID); err != nil {
+		return err
+	}
+
+	fmt.Println(s.t.Get("Database server %s deleted successfully", server.Name))
 	return nil
 }
 
 func (s *CliService) BackupWebsite(ctx context.Context, cmd *cli.Command) error {
 	fmt.Println(s.hr)
-	fmt.Printf("★ 开始备份 [%s]\n", time.Now().Format(time.DateTime))
+	fmt.Println(s.t.Get("★ Start backup [%s]", time.Now().Format(time.DateTime)))
 	fmt.Println(s.hr)
-	fmt.Println("|-备份类型：网站")
-	fmt.Printf("|-备份目标：%s\n", cmd.String("name"))
+	fmt.Println(s.t.Get("|-Backup type: website"))
+	fmt.Println(s.t.Get("|-Backup target: %s", cmd.String("name")))
 	if err := s.backupRepo.Create(biz.BackupTypeWebsite, cmd.String("name"), cmd.String("path")); err != nil {
-		return fmt.Errorf("备份失败：%v", err)
+		return errors.New(s.t.Get("Backup failed: %v", err))
 	}
 	fmt.Println(s.hr)
-	fmt.Printf("☆ 备份成功 [%s]\n", time.Now().Format(time.DateTime))
+	fmt.Println(s.t.Get("☆ Backup successful [%s]", time.Now().Format(time.DateTime)))
 	fmt.Println(s.hr)
 	return nil
 }
 
 func (s *CliService) BackupDatabase(ctx context.Context, cmd *cli.Command) error {
 	fmt.Println(s.hr)
-	fmt.Printf("★ 开始备份 [%s]\n", time.Now().Format(time.DateTime))
+	fmt.Println(s.t.Get("★ Start backup [%s]", time.Now().Format(time.DateTime)))
 	fmt.Println(s.hr)
-	fmt.Println("|-备份类型：数据库")
-	fmt.Printf("|-数据库：%s\n", cmd.String("type"))
-	fmt.Printf("|-备份目标：%s\n", cmd.String("name"))
+	fmt.Println(s.t.Get("|-Backup type: database"))
+	fmt.Println(s.t.Get("|-Database: %s", cmd.String("type")))
+	fmt.Println(s.t.Get("|-Backup target: %s", cmd.String("name")))
 	if err := s.backupRepo.Create(biz.BackupType(cmd.String("type")), cmd.String("name"), cmd.String("path")); err != nil {
-		return fmt.Errorf("备份失败：%v", err)
+		return errors.New(s.t.Get("Backup failed: %v", err))
 	}
 	fmt.Println(s.hr)
-	fmt.Printf("☆ 备份成功 [%s]\n", time.Now().Format(time.DateTime))
+	fmt.Println(s.t.Get("☆ Backup successful [%s]", time.Now().Format(time.DateTime)))
 	fmt.Println(s.hr)
 	return nil
 }
 
 func (s *CliService) BackupPanel(ctx context.Context, cmd *cli.Command) error {
 	fmt.Println(s.hr)
-	fmt.Printf("★ 开始备份 [%s]\n", time.Now().Format(time.DateTime))
+	fmt.Println(s.t.Get("★ Start backup [%s]", time.Now().Format(time.DateTime)))
 	fmt.Println(s.hr)
-	fmt.Println("|-备份类型：面板")
+	fmt.Println(s.t.Get("|-Backup type: panel"))
 	if err := s.backupRepo.Create(biz.BackupTypePanel, "", cmd.String("path")); err != nil {
-		return fmt.Errorf("备份失败：%v", err)
+		return errors.New(s.t.Get("Backup failed: %v", err))
 	}
 	fmt.Println(s.hr)
-	fmt.Printf("☆ 备份成功 [%s]\n", time.Now().Format(time.DateTime))
+	fmt.Println(s.t.Get("☆ Backup successful [%s]", time.Now().Format(time.DateTime)))
 	fmt.Println(s.hr)
 	return nil
 }
@@ -534,16 +712,16 @@ func (s *CliService) BackupClear(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	fmt.Println(s.hr)
-	fmt.Printf("★ 开始清理 [%s]\n", time.Now().Format(time.DateTime))
+	fmt.Println(s.t.Get("★ Start cleaning [%s]", time.Now().Format(time.DateTime)))
 	fmt.Println(s.hr)
-	fmt.Printf("|-清理类型：%s\n", cmd.String("type"))
-	fmt.Printf("|-清理目标：%s\n", cmd.String("file"))
-	fmt.Printf("|-保留份数：%d\n", cmd.Int("save"))
+	fmt.Println(s.t.Get("|-Cleaning type: %s", cmd.String("type")))
+	fmt.Println(s.t.Get("|-Cleaning target: %s", cmd.String("file")))
+	fmt.Println(s.t.Get("|-Keep count: %d", cmd.Int("save")))
 	if err = s.backupRepo.ClearExpired(path, cmd.String("file"), int(cmd.Int("save"))); err != nil {
-		return fmt.Errorf("清理失败：%v", err)
+		return errors.New(s.t.Get("Cleaning failed: %v", err))
 	}
 	fmt.Println(s.hr)
-	fmt.Printf("☆ 清理成功 [%s]\n", time.Now().Format(time.DateTime))
+	fmt.Println(s.t.Get("☆ Cleaning successful [%s]", time.Now().Format(time.DateTime)))
 	fmt.Println(s.hr)
 	return nil
 }
@@ -559,22 +737,22 @@ func (s *CliService) CutoffWebsite(ctx context.Context, cmd *cli.Command) error 
 	}
 
 	fmt.Println(s.hr)
-	fmt.Printf("★ 开始切割日志 [%s]\n", time.Now().Format(time.DateTime))
+	fmt.Println(s.t.Get("★ Start log rotation [%s]", time.Now().Format(time.DateTime)))
 	fmt.Println(s.hr)
-	fmt.Println("|-切割类型：网站")
-	fmt.Printf("|-切割目标：%s\n", website.Name)
+	fmt.Println(s.t.Get("|-Rotation type: website"))
+	fmt.Println(s.t.Get("|-Rotation target: %s", website.Name))
 	if err = s.backupRepo.CutoffLog(path, filepath.Join(app.Root, "wwwlogs", website.Name+".log")); err != nil {
 		return err
 	}
 	fmt.Println(s.hr)
-	fmt.Printf("☆ 切割成功 [%s]\n", time.Now().Format(time.DateTime))
+	fmt.Println(s.t.Get("☆ Rotation successful [%s]", time.Now().Format(time.DateTime)))
 	fmt.Println(s.hr)
 	return nil
 }
 
 func (s *CliService) CutoffClear(ctx context.Context, cmd *cli.Command) error {
 	if cmd.String("type") != "website" {
-		return errors.New("当前仅支持网站日志切割")
+		return errors.New(s.t.Get("Currently only website log rotation is supported"))
 	}
 	path := filepath.Join(app.Root, "wwwlogs")
 	if cmd.String("path") != "" {
@@ -582,16 +760,16 @@ func (s *CliService) CutoffClear(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	fmt.Println(s.hr)
-	fmt.Printf("★ 开始清理切割日志 [%s]\n", time.Now().Format(time.DateTime))
+	fmt.Println(s.t.Get("★ Start cleaning rotated logs [%s]", time.Now().Format(time.DateTime)))
 	fmt.Println(s.hr)
-	fmt.Printf("|-清理类型：%s\n", cmd.String("type"))
-	fmt.Printf("|-清理目标：%s\n", cmd.String("file"))
-	fmt.Printf("|-保留份数：%d\n", cmd.Int("save"))
+	fmt.Println(s.t.Get("|-Cleaning type: %s", cmd.String("type")))
+	fmt.Println(s.t.Get("|-Cleaning target: %s", cmd.String("file")))
+	fmt.Println(s.t.Get("|-Keep count: %d", cmd.Int("save")))
 	if err := s.backupRepo.ClearExpired(path, cmd.String("file"), int(cmd.Int("save"))); err != nil {
 		return err
 	}
 	fmt.Println(s.hr)
-	fmt.Printf("☆ 清理成功 [%s]\n", time.Now().Format(time.DateTime))
+	fmt.Println(s.t.Get("☆ Cleaning successful [%s]", time.Now().Format(time.DateTime)))
 	fmt.Println(s.hr)
 	return nil
 }
@@ -600,45 +778,42 @@ func (s *CliService) AppInstall(ctx context.Context, cmd *cli.Command) error {
 	slug := cmd.Args().First()
 	channel := cmd.Args().Get(1)
 	if channel == "" || slug == "" {
-		return fmt.Errorf("参数不能为空")
+		return errors.New(s.t.Get("Parameters cannot be empty"))
 	}
 
 	if err := s.appRepo.Install(channel, slug); err != nil {
-		return fmt.Errorf("应用安装失败：%v", err)
+		return errors.New(s.t.Get("App install failed: %v", err))
 	}
 
-	fmt.Printf("应用 %s 安装完成\n", slug)
-
+	fmt.Println(s.t.Get("App %s installed successfully", slug))
 	return nil
 }
 
 func (s *CliService) AppUnInstall(ctx context.Context, cmd *cli.Command) error {
 	slug := cmd.Args().First()
 	if slug == "" {
-		return fmt.Errorf("参数不能为空")
+		return errors.New(s.t.Get("Parameters cannot be empty"))
 	}
 
 	if err := s.appRepo.UnInstall(slug); err != nil {
-		return fmt.Errorf("应用卸载失败：%v", err)
+		return errors.New(s.t.Get("App uninstall failed: %v", err))
 	}
 
-	fmt.Printf("应用 %s 卸载完成\n", slug)
-
+	fmt.Println(s.t.Get("App %s uninstalled successfully", slug))
 	return nil
 }
 
 func (s *CliService) AppUpdate(ctx context.Context, cmd *cli.Command) error {
 	slug := cmd.Args().First()
 	if slug == "" {
-		return fmt.Errorf("参数不能为空")
+		return errors.New(s.t.Get("Parameters cannot be empty"))
 	}
 
 	if err := s.appRepo.Update(slug); err != nil {
-		return fmt.Errorf("应用更新失败：%v", err)
+		return errors.New(s.t.Get("App update failed: %v", err))
 	}
 
-	fmt.Printf("应用 %s 更新完成\n", slug)
-
+	fmt.Println(s.t.Get("App %s updated successfully", slug))
 	return nil
 }
 
@@ -647,20 +822,20 @@ func (s *CliService) AppWrite(ctx context.Context, cmd *cli.Command) error {
 	channel := cmd.Args().Get(1)
 	version := cmd.Args().Get(2)
 	if slug == "" || channel == "" || version == "" {
-		return fmt.Errorf("参数不能为空")
+		return errors.New(s.t.Get("Parameters cannot be empty"))
 	}
 
 	newApp := new(biz.App)
-	if err := app.Orm.Where("slug", slug).First(newApp).Error; err != nil {
+	if err := s.db.Where("slug", slug).First(newApp).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("获取应用失败：%v", err)
+			return errors.New(s.t.Get("Failed to get app: %v", err))
 		}
 	}
 	newApp.Slug = slug
 	newApp.Channel = channel
 	newApp.Version = version
-	if err := app.Orm.Save(newApp).Error; err != nil {
-		return fmt.Errorf("应用保存失败：%v", err)
+	if err := s.db.Save(newApp).Error; err != nil {
+		return errors.New(s.t.Get("Failed to save app: %v", err))
 	}
 
 	return nil
@@ -669,11 +844,11 @@ func (s *CliService) AppWrite(ctx context.Context, cmd *cli.Command) error {
 func (s *CliService) AppRemove(ctx context.Context, cmd *cli.Command) error {
 	slug := cmd.Args().First()
 	if slug == "" {
-		return fmt.Errorf("参数不能为空")
+		return errors.New(s.t.Get("Parameters cannot be empty"))
 	}
 
-	if err := app.Orm.Where("slug", slug).Delete(&biz.App{}).Error; err != nil {
-		return fmt.Errorf("应用删除失败：%v", err)
+	if err := s.db.Where("slug", slug).Delete(&biz.App{}).Error; err != nil {
+		return errors.New(s.t.Get("Failed to delete app: %v", err))
 	}
 
 	return nil
@@ -689,38 +864,37 @@ func (s *CliService) SyncTime(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	fmt.Println("时间同步成功")
+	fmt.Println(s.t.Get("Time synchronized successfully"))
 	return nil
 }
 
 func (s *CliService) ClearTask(ctx context.Context, cmd *cli.Command) error {
-	if err := app.Orm.Model(&biz.Task{}).
+	if err := s.db.Model(&biz.Task{}).
 		Where("status", biz.TaskStatusRunning).Or("status", biz.TaskStatusWaiting).
 		Update("status", biz.TaskStatusFailed).
 		Error; err != nil {
-		return fmt.Errorf("任务清理失败：%v", err)
+		return errors.New(s.t.Get("Failed to clear tasks: %v", err))
 	}
 
-	fmt.Println("任务清理成功")
+	fmt.Println(s.t.Get("Tasks cleared successfully"))
 	return nil
 }
 
 func (s *CliService) GetSetting(ctx context.Context, cmd *cli.Command) error {
 	key := cmd.Args().First()
 	if key == "" {
-		return fmt.Errorf("参数不能为空")
+		return errors.New(s.t.Get("Parameters cannot be empty"))
 	}
 
 	setting := new(biz.Setting)
-	if err := app.Orm.Where("key", key).First(setting).Error; err != nil {
+	if err := s.db.Where("key", key).First(setting).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("设置不存在")
+			return errors.New(s.t.Get("Setting not exists"))
 		}
-		return fmt.Errorf("获取设置失败：%v", err)
+		return errors.New(s.t.Get("Failed to get setting: %v", err))
 	}
 
 	fmt.Print(setting.Value)
-
 	return nil
 }
 
@@ -728,19 +902,19 @@ func (s *CliService) WriteSetting(ctx context.Context, cmd *cli.Command) error {
 	key := cmd.Args().Get(0)
 	value := cmd.Args().Get(1)
 	if key == "" || value == "" {
-		return fmt.Errorf("参数不能为空")
+		return errors.New(s.t.Get("Parameters cannot be empty"))
 	}
 
 	setting := new(biz.Setting)
-	if err := app.Orm.Where("key", key).First(setting).Error; err != nil {
+	if err := s.db.Where("key", key).First(setting).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("获取设置失败：%v", err)
+			return errors.New(s.t.Get("Failed to get setting: %v", err))
 		}
 	}
 	setting.Key = biz.SettingKey(key)
 	setting.Value = value
-	if err := app.Orm.Save(setting).Error; err != nil {
-		return fmt.Errorf("设置保存失败：%v", err)
+	if err := s.db.Save(setting).Error; err != nil {
+		return errors.New(s.t.Get("Failed to save setting: %v", err))
 	}
 
 	return nil
@@ -749,11 +923,11 @@ func (s *CliService) WriteSetting(ctx context.Context, cmd *cli.Command) error {
 func (s *CliService) RemoveSetting(ctx context.Context, cmd *cli.Command) error {
 	key := cmd.Args().First()
 	if key == "" {
-		return fmt.Errorf("参数不能为空")
+		return errors.New(s.t.Get("Parameters cannot be empty"))
 	}
 
-	if err := app.Orm.Where("key", key).Delete(&biz.Setting{}).Error; err != nil {
-		return fmt.Errorf("设置删除失败：%v", err)
+	if err := s.db.Where("key", key).Delete(&biz.Setting{}).Error; err != nil {
+		return errors.New(s.t.Get("Failed to delete setting: %v", err))
 	}
 
 	return nil
@@ -761,35 +935,37 @@ func (s *CliService) RemoveSetting(ctx context.Context, cmd *cli.Command) error 
 
 func (s *CliService) Init(ctx context.Context, cmd *cli.Command) error {
 	var check biz.User
-	if err := app.Orm.First(&check).Error; err == nil {
-		return fmt.Errorf("已经初始化过了")
+	if err := s.db.First(&check).Error; err == nil {
+		return errors.New(s.t.Get("Already initialized"))
 	}
 
 	settings := []biz.Setting{
-		{Key: biz.SettingKeyName, Value: "耗子面板"},
-		{Key: biz.SettingKeyMonitor, Value: "1"},
+		{Key: biz.SettingKeyName, Value: "AcePanel"},
+		{Key: biz.SettingKeyChannel, Value: "stable"},
+		{Key: biz.SettingKeyVersion, Value: app.Version},
+		{Key: biz.SettingKeyMonitor, Value: "true"},
 		{Key: biz.SettingKeyMonitorDays, Value: "30"},
 		{Key: biz.SettingKeyBackupPath, Value: filepath.Join(app.Root, "backup")},
 		{Key: biz.SettingKeyWebsitePath, Value: filepath.Join(app.Root, "wwwroot")},
-		{Key: biz.SettingKeyVersion, Value: app.Version},
+		{Key: biz.SettingKeyOfflineMode, Value: "false"},
+		{Key: biz.SettingKeyAutoUpdate, Value: "true"},
 	}
-	if err := app.Orm.Create(&settings).Error; err != nil {
-		return fmt.Errorf("初始化失败：%v", err)
+	if err := s.db.Create(&settings).Error; err != nil {
+		return errors.New(s.t.Get("Initialization failed: %v", err))
 	}
 
 	value, err := hash.NewArgon2id().Make(str.Random(32))
 	if err != nil {
-		return fmt.Errorf("初始化失败：%v", err)
+		return errors.New(s.t.Get("Initialization failed: %v", err))
 	}
 
-	user := data.NewUserRepo()
-	_, err = user.Create("admin", value)
+	_, err = s.userRepo.Create("admin", value, str.Random(8)+"@yourdomain.com")
 	if err != nil {
-		return fmt.Errorf("初始化失败：%v", err)
+		return errors.New(s.t.Get("Initialization failed: %v", err))
 	}
 
 	if err = s.HTTPSGenerate(ctx, cmd); err != nil {
-		return fmt.Errorf("初始化失败：%v", err)
+		return errors.New(s.t.Get("Initialization failed: %v", err))
 	}
 
 	config := new(types.PanelConfig)
@@ -804,6 +980,24 @@ func (s *CliService) Init(ctx context.Context, cmd *cli.Command) error {
 	config.App.Key = str.Random(32)
 	config.HTTP.Entrance = "/" + str.Random(6)
 
+	// 随机默认端口
+checkPort:
+	port := uint(rand.IntN(50000) + 10000) // 10000-60000
+	if os.TCPPortInUse(port) {
+		goto checkPort
+	}
+	config.HTTP.Port = port
+
+	// 放行端口
+	fw := firewall.NewFirewall()
+	_ = fw.Port(firewall.FireInfo{
+		Type:      firewall.TypeNormal,
+		PortStart: port,
+		PortEnd:   port,
+		Direction: firewall.DirectionIn,
+		Strategy:  firewall.StrategyAccept,
+	}, firewall.OperationAdd)
+
 	encoded, err := yaml.Marshal(config)
 	if err != nil {
 		return err
@@ -812,6 +1006,5 @@ func (s *CliService) Init(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	// 初始化应用中心缓存
-	return s.appRepo.UpdateCache()
+	return nil
 }

@@ -1,34 +1,25 @@
-import { http, request } from '@/utils'
-
-import type { AxiosResponse } from 'axios'
-import type { RequestConfig } from '~/types/axios'
+import { http } from '@/utils'
 
 export default {
   // 面板信息
-  panel: (): Promise<Response> => fetch('/api/dashboard/panel'),
-  // 面板菜单
-  menu: (): Promise<AxiosResponse<any>> => request.get('/dashboard/menu'),
+  panel: (): any => http.Get('/dashboard/panel'),
   // 首页应用
-  homeApps: (): Promise<AxiosResponse<any>> => request.get('/dashboard/homeApps'),
+  homeApps: (): any => http.Get('/dashboard/home_apps'),
   // 实时信息
-  current: (nets: string[], disks: string[]): Promise<AxiosResponse<any>> =>
-    request.post('/dashboard/current', { nets, disks }, { noNeedTip: true } as RequestConfig),
+  current: (nets: string[], disks: string[]): any =>
+    http.Post('/dashboard/current', { nets, disks }, { meta: { noAlert: true } }),
   // 系统信息
-  systemInfo: (): Promise<AxiosResponse<any>> => request.get('/dashboard/systemInfo'),
+  systemInfo: (): any => http.Get('/dashboard/system_info'),
   // 统计信息
-  countInfo: (): Promise<AxiosResponse<any>> => request.get('/dashboard/countInfo'),
+  countInfo: (): any => http.Get('/dashboard/count_info'),
   // 已安装的数据库和PHP
-  installedDbAndPhp: (): Promise<AxiosResponse<any>> => request.get('/dashboard/installedDbAndPhp'),
+  installedDbAndPhp: (): any => http.Get('/dashboard/installed_db_and_php'),
   // 检查更新
-  checkUpdate: (): Promise<AxiosResponse<any>> => request.get('/dashboard/checkUpdate'),
+  checkUpdate: (): any => http.Get('/dashboard/check_update'),
   // 更新日志
-  updateInfo: (): Promise<AxiosResponse<any>> => request.get('/dashboard/updateInfo'),
+  updateInfo: (): any => http.Get('/dashboard/update_info'),
   // 更新面板
-  update: (): Promise<AxiosResponse<any>> => request.post('/dashboard/update', null),
+  update: (): any => http.Post('/dashboard/update'),
   // 重启面板
-  restart: (): Promise<AxiosResponse<any>> => request.post('/dashboard/restart')
+  restart: (): any => http.Post('/dashboard/restart')
 }
-
-export const panel = () => http.Get('/dashboard/panel')
-export const current = (nets: string[], disks: string[]) =>
-  http.Post('/dashboard/current', { nets, disks }, { meta: { noAlert: true } })

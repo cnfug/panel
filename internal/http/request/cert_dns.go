@@ -1,16 +1,16 @@
 package request
 
-import "github.com/TheTNB/panel/pkg/acme"
+import "github.com/acepanel/panel/pkg/acme"
 
 type CertDNSCreate struct {
-	Type string        `form:"type" json:"type" validate:"required"`
+	Type acme.DnsType  `form:"type" json:"type" validate:"required|in:aliyun,tencent,huawei,westcn,cloudflare,gcore,porkbun,namesilo,cloudns"`
 	Name string        `form:"name" json:"name" validate:"required"`
-	Data acme.DNSParam `form:"data" json:"data"`
+	Data acme.DNSParam `form:"data" json:"data" validate:"required"`
 }
 
 type CertDNSUpdate struct {
-	ID   uint          `form:"id" json:"id" validate:"required,exists=cert_dns id"`
-	Type string        `form:"type" json:"type" validate:"required"`
+	ID   uint          `form:"id" json:"id" validate:"required|exists:cert_dns,id"`
+	Type acme.DnsType  `form:"type" json:"type" validate:"required|in:aliyun,tencent,huawei,westcn,cloudflare,gcore,porkbun,namesilo,cloudns"`
 	Name string        `form:"name" json:"name" validate:"required"`
-	Data acme.DNSParam `form:"data" json:"data"`
+	Data acme.DNSParam `form:"data" json:"data" validate:"required"`
 }

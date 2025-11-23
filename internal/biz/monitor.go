@@ -3,13 +3,13 @@ package biz
 import (
 	"time"
 
-	"github.com/TheTNB/panel/internal/http/request"
-	"github.com/TheTNB/panel/pkg/types"
+	"github.com/acepanel/panel/internal/http/request"
+	"github.com/acepanel/panel/pkg/types"
 )
 
 type Monitor struct {
 	ID        uint              `gorm:"primaryKey" json:"id"`
-	Info      types.CurrentInfo `gorm:"not null;serializer:json" json:"info"`
+	Info      types.CurrentInfo `gorm:"not null;default:'{}';serializer:json" json:"info"`
 	CreatedAt time.Time         `json:"created_at"`
 	UpdatedAt time.Time         `json:"updated_at"`
 }

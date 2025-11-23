@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cast"
 
-	"github.com/TheTNB/panel/pkg/shell"
-	"github.com/TheTNB/panel/pkg/systemctl"
+	"github.com/acepanel/panel/pkg/shell"
+	"github.com/acepanel/panel/pkg/systemctl"
 )
 
 type Firewall struct {
@@ -23,7 +23,7 @@ type Firewall struct {
 func NewFirewall() *Firewall {
 	firewall := &Firewall{
 		forwardListRegex: regexp.MustCompile(`^port=(\d{1,5}):proto=(.+?):toport=(\d{1,5}):toaddr=(.*)$`),
-		richRuleRegex:    regexp.MustCompile(`^rule family="([^"]+)"(?: .*?(source|destination) address="([^"]+)")?(?: .*?port port="([^"]+)")?(?: .*?protocol(?: value)?="([^"]+)")?.*?(accept|drop|reject)$`),
+		richRuleRegex:    regexp.MustCompile(`^rule family="([^"]+)"(?: .*?(source|destination) address="([^"]+)")?(?: .*?port port="([^"]+)")?(?: .*?protocol(?: value)?="([^"]+)")?.*?(accept|drop|reject|mark).*?$`),
 	}
 
 	return firewall
@@ -207,6 +207,11 @@ func (r *Firewall) Port(rule FireInfo, operation Operation) error {
 }
 
 func (r *Firewall) RichRules(rule FireInfo, operation Operation) error {
+	// 出站规则下，必须指定具体的地址，否则会添加成入站规则
+	if rule.Direction == "out" && rule.Address == "" {
+		return fmt.Errorf("outbound rules must specify an address")
+	}
+
 	protocols := strings.Split(string(rule.Protocol), "/")
 	for protocol := range slices.Values(protocols) {
 		var ruleBuilder strings.Builder

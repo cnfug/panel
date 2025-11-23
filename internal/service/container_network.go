@@ -3,20 +3,19 @@ package service
 import (
 	"net/http"
 
-	"github.com/go-rat/chix"
+	"github.com/libtnb/chix"
 
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/internal/data"
-	"github.com/TheTNB/panel/internal/http/request"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/internal/http/request"
 )
 
 type ContainerNetworkService struct {
 	containerNetworkRepo biz.ContainerNetworkRepo
 }
 
-func NewContainerNetworkService() *ContainerNetworkService {
+func NewContainerNetworkService(containerNetwork biz.ContainerNetworkRepo) *ContainerNetworkService {
 	return &ContainerNetworkService{
-		containerNetworkRepo: data.NewContainerNetworkRepo(),
+		containerNetworkRepo: containerNetwork,
 	}
 }
 

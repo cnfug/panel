@@ -5,7 +5,6 @@ defineOptions({
 
 import ssh from '@/api/panel/ssh'
 import ws from '@/api/ws'
-import TheIcon from '@/components/custom/TheIcon.vue'
 import CreateModal from '@/views/ssh/CreateModal.vue'
 import UpdateModal from '@/views/ssh/UpdateModal.vue'
 import '@fontsource-variable/jetbrains-mono/wght-italic.css'
@@ -19,7 +18,9 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { NButton, NFlex, NPopconfirm } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
+const { $gettext } = useGettext()
 const terminal = ref<HTMLElement | null>(null)
 const term = ref()
 let sshWs: WebSocket | null = null
@@ -36,9 +37,9 @@ const list = ref<any[]>([])
 
 const fetchData = async () => {
   list.value = []
-  const { data } = await ssh.list(1, 10000)
+  const data = await ssh.list(1, 10000)
   if (data.items.length === 0) {
-    window.$message.info('请先创建主机')
+    window.$message.info($gettext('Please create a host first'))
     return
   }
   data.items.forEach((item: any) => {
@@ -66,7 +67,7 @@ const fetchData = async () => {
                 },
                 {
                   default: () => {
-                    return '编辑'
+                    return $gettext('Edit')
                   }
                 }
               ),
@@ -77,7 +78,7 @@ const fetchData = async () => {
                 },
                 {
                   default: () => {
-                    return '确定删除主机吗？'
+                    return $gettext('Are you sure you want to delete this host?')
                   },
                   trigger: () => {
                     return h(
@@ -88,7 +89,7 @@ const fetchData = async () => {
                       },
                       {
                         default: () => {
-                          return '删除'
+                          return $gettext('Delete')
                         }
                       }
                     )
@@ -104,19 +105,20 @@ const fetchData = async () => {
   await openSession(updateId.value === 0 ? Number(list.value[0].key) : updateId.value)
 }
 
-const handleDelete = async (id: number) => {
-  await ssh.delete(id)
-  list.value = list.value.filter((item: any) => item.key !== id)
-  if (current.value === id) {
-    if (list.value.length > 0) {
-      await openSession(Number(list.value[0].key))
-    } else {
-      term.value.dispose()
+const handleDelete = (id: number) => {
+  useRequest(ssh.delete(id)).onSuccess(() => {
+    list.value = list.value.filter((item: any) => item.key !== id)
+    if (current.value === id) {
+      if (list.value.length > 0) {
+        openSession(Number(list.value[0].key))
+      } else {
+        term.value.dispose()
+      }
+      if (list.value.length === 0) {
+        create.value = true
+      }
     }
-    if (list.value.length === 0) {
-      create.value = true
-    }
-  }
+  })
 }
 
 const handleChange = (key: number) => {
@@ -150,20 +152,18 @@ const openSession = async (id: number) => {
     })
     term.value.open(terminal.value!)
 
-    fitAddon.fit()
+    onResize()
     term.value.focus()
     window.addEventListener('resize', onResize, false)
     current.value = id
 
     ws.onclose = () => {
-      term.value.write('\r\n连接已关闭，请刷新重试。')
-      term.value.write('\r\nConnection closed. Please refresh.')
+      term.value.write('\r\n' + $gettext('Connection closed. Please refresh.'))
       window.removeEventListener('resize', onResize)
     }
 
     ws.onerror = (event) => {
-      term.value.write('\r\n连接发生错误，请刷新重试。')
-      term.value.write('\r\nConnection error. Please refresh .')
+      term.value.write('\r\n' + $gettext('Connection error. Please refresh.'))
       console.error(event)
       ws.close()
     }
@@ -224,12 +224,6 @@ onUnmounted(() => {
 
 <template>
   <common-page show-footer>
-    <template #action>
-      <n-button type="primary" @click="create = true">
-        <TheIcon :size="18" icon="material-symbols:add" />
-        创建主机
-      </n-button>
-    </template>
     <n-layout has-sider sider-placement="right">
       <n-layout content-style="overflow: visible" bg-hex-111>
         <div ref="terminal" @wheel="onTermWheel" h-75vh></div>
@@ -244,7 +238,13 @@ onUnmounted(() => {
         @expand="collapsed = false"
         @after-enter="onResize"
         @after-leave="onResize"
+        pl-10
       >
+        <div class="text-center">
+          <n-button type="primary" @click="create = true">
+            {{ $gettext('Create Host') }}
+          </n-button>
+        </div>
         <n-menu
           v-model:value="current"
           :collapsed="collapsed"

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/TheTNB/panel/pkg/chattr"
+	"github.com/acepanel/panel/pkg/chattr"
 )
 
 // Write 写入文件
@@ -35,7 +35,9 @@ func Write(path string, data string, permission os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func(file *os.File) {
+		_ = file.Close()
+	}(file)
 
 	_, err = file.WriteString(data)
 	if err != nil {
@@ -71,7 +73,9 @@ func WriteAppend(path string, data string, permission os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func(file *os.File) {
+		_ = file.Close()
+	}(file)
 
 	_, err = file.WriteString(data)
 	if err != nil {
@@ -89,11 +93,6 @@ func WriteAppend(path string, data string, permission os.FileMode) error {
 func Read(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	return string(data), err
-}
-
-// FileInfo 获取文件大小
-func FileInfo(path string) (os.FileInfo, error) {
-	return os.Stat(path)
 }
 
 // IsSymlink 判读是否为软链接
@@ -114,9 +113,4 @@ func GetSymlink(path string) string {
 		return ""
 	}
 	return linkPath
-}
-
-// TempFile 创建临时文件
-func TempFile(dir, prefix string) (*os.File, error) {
-	return os.CreateTemp(dir, prefix)
 }

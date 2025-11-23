@@ -1,23 +1,33 @@
 package data
 
 import (
+	"encoding/json"
 	"errors"
+	"slices"
 
 	"gorm.io/gorm"
 
-	"github.com/TheTNB/panel/internal/app"
-	"github.com/TheTNB/panel/internal/biz"
+	"github.com/acepanel/panel/internal/app"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/pkg/api"
+	"github.com/acepanel/panel/pkg/apploader"
 )
 
-type cacheRepo struct{}
+type cacheRepo struct {
+	api *api.API
+	db  *gorm.DB
+}
 
-func NewCacheRepo() biz.CacheRepo {
-	return &cacheRepo{}
+func NewCacheRepo(db *gorm.DB) biz.CacheRepo {
+	return &cacheRepo{
+		api: api.NewAPI(app.Version, app.Locale),
+		db:  db,
+	}
 }
 
 func (r *cacheRepo) Get(key biz.CacheKey, defaultValue ...string) (string, error) {
 	cache := new(biz.Cache)
-	if err := app.Orm.Where("key = ?", key).First(cache).Error; err != nil {
+	if err := r.db.Where("key = ?", key).First(cache).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return "", err
 		}
@@ -32,10 +42,43 @@ func (r *cacheRepo) Get(key biz.CacheKey, defaultValue ...string) (string, error
 
 func (r *cacheRepo) Set(key biz.CacheKey, value string) error {
 	cache := new(biz.Cache)
-	if err := app.Orm.Where(biz.Cache{Key: key}).FirstOrInit(cache).Error; err != nil {
+	if err := r.db.Where(biz.Cache{Key: key}).FirstOrInit(cache).Error; err != nil {
 		return err
 	}
 
 	cache.Value = value
-	return app.Orm.Save(cache).Error
+	return r.db.Save(cache).Error
+}
+
+func (r *cacheRepo) UpdateApps() error {
+	remote, err := r.api.Apps()
+	if err != nil {
+		return err
+	}
+
+	// 去除本地不存在的应用
+	*remote = slices.Clip(slices.DeleteFunc(*remote, func(item *api.App) bool {
+		return !slices.Contains(apploader.Slugs(), item.Slug)
+	}))
+
+	encoded, err := json.Marshal(remote)
+	if err != nil {
+		return err
+	}
+
+	return r.Set(biz.CacheKeyApps, string(encoded))
+}
+
+func (r *cacheRepo) UpdateRewrites() error {
+	rewrites, err := r.api.RewritesByType("nginx")
+	if err != nil {
+		return err
+	}
+
+	encoded, err := json.Marshal(rewrites)
+	if err != nil {
+		return err
+	}
+
+	return r.Set(biz.CacheKeyRewrites, string(encoded))
 }

@@ -1,36 +1,40 @@
 <script setup lang="ts">
-import { NButton } from 'naive-ui'
-
 defineOptions({
   name: 'task-index'
 })
 
-import TheIcon from '@/components/custom/TheIcon.vue'
 import CreateModal from '@/views/task/CreateModal.vue'
 import CronView from '@/views/task/CronView.vue'
+import SystemView from '@/views/task/SystemView.vue'
 import TaskView from '@/views/task/TaskView.vue'
+import { NButton } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
+const { $gettext } = useGettext()
 const current = ref('cron')
 
 const create = ref(false)
 </script>
 
 <template>
-  <common-page show-footer>
-    <template #action>
-      <n-button v-if="current == 'cron'" type="primary" @click="create = true">
-        <TheIcon :size="18" icon="material-symbols:add" />
-        创建任务
-      </n-button>
+  <common-page show-header show-footer>
+    <template #tabbar>
+      <n-tabs v-model:value="current" animated>
+        <n-tab name="cron" :tab="$gettext('Scheduled Tasks')" />
+        <n-tab name="system" :tab="$gettext('System Processes')" />
+        <n-tab name="task" :tab="$gettext('Panel Tasks')" />
+      </n-tabs>
     </template>
-    <n-tabs v-model:value="current" type="line" animated size="large">
-      <n-tab-pane name="cron" tab="计划任务">
-        <cron-view />
-      </n-tab-pane>
-      <n-tab-pane name="task" tab="后台任务">
-        <task-view />
-      </n-tab-pane>
-    </n-tabs>
+    <n-flex vertical>
+      <n-flex>
+        <n-button v-if="current == 'cron'" type="primary" @click="create = true">
+          {{ $gettext('Create Task') }}
+        </n-button>
+      </n-flex>
+      <cron-view v-if="current === 'cron'" />
+      <system-view v-if="current === 'system'" />
+      <task-view v-if="current === 'task'" />
+    </n-flex>
   </common-page>
   <create-modal v-model:show="create" />
 </template>

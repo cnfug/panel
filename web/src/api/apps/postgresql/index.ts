@@ -1,22 +1,18 @@
-import type { AxiosResponse } from 'axios'
-
-import { request } from '@/utils'
+import { http } from '@/utils'
 
 export default {
   // 负载状态
-  load: (): Promise<AxiosResponse<any>> => request.get('/apps/postgresql/load'),
+  load: (): any => http.Get('/apps/postgresql/load'),
   // 获取配置
-  config: (): Promise<AxiosResponse<any>> => request.get('/apps/postgresql/config'),
+  config: (): any => http.Get('/apps/postgresql/config'),
   // 保存配置
-  saveConfig: (config: string): Promise<AxiosResponse<any>> =>
-    request.post('/apps/postgresql/config', { config }),
+  saveConfig: (config: string): any => http.Post('/apps/postgresql/config', { config }),
   // 获取用户配置
-  userConfig: (): Promise<AxiosResponse<any>> => request.get('/apps/postgresql/userConfig'),
+  userConfig: (): any => http.Get('/apps/postgresql/user_config'),
   // 保存配置
-  saveUserConfig: (config: string): Promise<AxiosResponse<any>> =>
-    request.post('/apps/postgresql/userConfig', { config }),
+  saveUserConfig: (config: string): any => http.Post('/apps/postgresql/user_config', { config }),
   // 获取日志
-  log: (): Promise<AxiosResponse<any>> => request.get('/apps/postgresql/log'),
+  log: (): any => http.Get('/apps/postgresql/log'),
   // 清空错误日志
-  clearLog: (): Promise<AxiosResponse<any>> => request.post('/apps/postgresql/clearLog')
+  clearLog: (): any => http.Post('/apps/postgresql/clear_log')
 }

@@ -2,62 +2,46 @@ package data
 
 import (
 	"context"
-	"fmt"
-	"net"
-	"net/http"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/go-resty/resty/v2"
+	"github.com/moby/moby/client"
 
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/internal/http/request"
-	"github.com/TheTNB/panel/pkg/shell"
-	"github.com/TheTNB/panel/pkg/tools"
-	"github.com/TheTNB/panel/pkg/types"
-	"github.com/TheTNB/panel/pkg/types/docker/volume"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/internal/http/request"
+	"github.com/acepanel/panel/pkg/tools"
+	"github.com/acepanel/panel/pkg/types"
 )
 
-type containerVolumeRepo struct {
-	client *resty.Client
-}
+type containerVolumeRepo struct{}
 
-func NewContainerVolumeRepo(sock ...string) biz.ContainerVolumeRepo {
-	if len(sock) == 0 {
-		sock = append(sock, "/var/run/docker.sock")
-	}
-	client := resty.New()
-	client.SetTimeout(1 * time.Minute)
-	client.SetRetryCount(2)
-	client.SetTransport(&http.Transport{
-		DialContext: func(ctx context.Context, _ string, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", sock[0])
-		},
-	})
-	client.SetBaseURL("http://d/v1.40")
-
-	return &containerVolumeRepo{
-		client: client,
-	}
+func NewContainerVolumeRepo() biz.ContainerVolumeRepo {
+	return &containerVolumeRepo{}
 }
 
 // List 列出存储卷
 func (r *containerVolumeRepo) List() ([]types.ContainerVolume, error) {
-	var resp volume.ListResponse
-	_, err := r.client.R().SetResult(&resp).Get("/volumes")
+	apiClient, err := getDockerClient("/var/run/docker.sock")
+	if err != nil {
+		return nil, err
+	}
+	defer func(apiClient *client.Client) { _ = apiClient.Close() }(apiClient)
+
+	resp, err := apiClient.VolumeList(context.Background(), client.VolumeListOptions{})
 	if err != nil {
 		return nil, err
 	}
 
 	var volumes []types.ContainerVolume
-	for _, item := range resp.Volumes {
+	for _, item := range resp.Items {
+		createdAt, _ := time.Parse(time.RFC3339Nano, item.CreatedAt)
 		volumes = append(volumes, types.ContainerVolume{
 			Name:       item.Name,
 			Driver:     item.Driver,
 			Scope:      item.Scope,
 			MountPoint: item.Mountpoint,
-			CreatedAt:  item.CreatedAt,
+			CreatedAt:  createdAt,
 			Labels:     types.MapToKV(item.Labels),
 			Options:    types.MapToKV(item.Options),
 			RefCount:   item.UsageData.RefCount,
@@ -74,32 +58,47 @@ func (r *containerVolumeRepo) List() ([]types.ContainerVolume, error) {
 
 // Create 创建存储卷
 func (r *containerVolumeRepo) Create(req *request.ContainerVolumeCreate) (string, error) {
-	var sb strings.Builder
-	sb.WriteString("docker volume create")
-	sb.WriteString(fmt.Sprintf(" %s", req.Name))
-
-	if req.Driver != "" {
-		sb.WriteString(fmt.Sprintf(" --driver %s", req.Driver))
+	apiClient, err := getDockerClient("/var/run/docker.sock")
+	if err != nil {
+		return "", err
 	}
-	for _, label := range req.Labels {
-		sb.WriteString(fmt.Sprintf(" --label %s=%s", label.Key, label.Value))
+	defer func(apiClient *client.Client) { _ = apiClient.Close() }(apiClient)
+
+	resp, err := apiClient.VolumeCreate(context.Background(), client.VolumeCreateOptions{
+		Name:       req.Name,
+		Driver:     req.Driver,
+		DriverOpts: types.KVToMap(req.Options),
+		Labels:     types.KVToMap(req.Labels),
+	})
+	if err != nil {
+		return "", err
 	}
 
-	for _, option := range req.Options {
-		sb.WriteString(fmt.Sprintf(" --opt %s=%s", option.Key, option.Value))
-	}
-
-	return shell.Exec(sb.String())
+	return resp.Volume.Name, nil
 }
 
 // Remove 删除存储卷
 func (r *containerVolumeRepo) Remove(id string) error {
-	_, err := shell.ExecfWithTimeout(120*time.Second, "docker volume rm -f %s", id)
+	apiClient, err := getDockerClient("/var/run/docker.sock")
+	if err != nil {
+		return err
+	}
+	defer func(apiClient *client.Client) { _ = apiClient.Close() }(apiClient)
+
+	_, err = apiClient.VolumeRemove(context.Background(), id, client.VolumeRemoveOptions{
+		Force: true,
+	})
 	return err
 }
 
 // Prune 清理未使用的存储卷
 func (r *containerVolumeRepo) Prune() error {
-	_, err := shell.ExecfWithTimeout(120*time.Second, "docker volume prune -f")
+	apiClient, err := getDockerClient("/var/run/docker.sock")
+	if err != nil {
+		return err
+	}
+	defer func(apiClient *client.Client) { _ = apiClient.Close() }(apiClient)
+
+	_, err = apiClient.VolumePrune(context.Background(), client.VolumePruneOptions{})
 	return err
 }

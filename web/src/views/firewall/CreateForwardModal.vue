@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import firewall from '@/api/panel/firewall'
 import { NButton } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
+const { $gettext } = useGettext()
 const show = defineModel<boolean>('show', { type: Boolean, required: true })
 const loading = ref(false)
 
@@ -27,17 +29,17 @@ const createModel = ref({
   target_port: 80
 })
 
-const handleCreate = async () => {
-  await firewall.createForward(createModel.value).then(() => {
-    window.$message.success(`创建成功`)
+const handleCreate = () => {
+  useRequest(firewall.createForward(createModel.value)).onSuccess(() => {
+    show.value = false
+    createModel.value = {
+      protocol: 'tcp',
+      port: 8080,
+      target_ip: '127.0.0.1',
+      target_port: 80
+    }
+    window.$message.success($gettext('Created successfully'))
   })
-  createModel.value = {
-    protocol: 'tcp',
-    port: 8080,
-    target_ip: '127.0.0.1',
-    target_port: 80
-  }
-  show.value = false
 }
 </script>
 
@@ -45,7 +47,7 @@ const handleCreate = async () => {
   <n-modal
     v-model:show="show"
     preset="card"
-    title="创建转发"
+    :title="$gettext('Create Forwarding')"
     style="width: 60vw"
     size="huge"
     :bordered="false"
@@ -53,15 +55,15 @@ const handleCreate = async () => {
     @close="show = false"
   >
     <n-form :model="createModel">
-      <n-form-item path="protocols" label="传输协议">
+      <n-form-item path="protocols" :label="$gettext('Transport Protocol')">
         <n-select v-model:value="createModel.protocol" :options="protocols" />
       </n-form-item>
-      <n-form-item path="address" label="目标 IP">
+      <n-form-item path="address" :label="$gettext('Target IP')">
         <n-input v-model:value="createModel.target_ip" placeholder="127.0.0.1" />
       </n-form-item>
       <n-row :gutter="[0, 24]">
         <n-col :span="12">
-          <n-form-item path="address" label="源端口">
+          <n-form-item path="address" :label="$gettext('Source Port')">
             <n-input-number
               v-model:value="createModel.port"
               :min="1"
@@ -71,7 +73,7 @@ const handleCreate = async () => {
           </n-form-item>
         </n-col>
         <n-col :span="12">
-          <n-form-item path="address" label="目标端口">
+          <n-form-item path="address" :label="$gettext('Target Port')">
             <n-input-number
               v-model:value="createModel.target_port"
               :min="1"
@@ -83,7 +85,7 @@ const handleCreate = async () => {
       </n-row>
     </n-form>
     <n-button type="info" block :loading="loading" :disabled="loading" @click="handleCreate">
-      提交
+      {{ $gettext('Submit') }}
     </n-button>
   </n-modal>
 </template>

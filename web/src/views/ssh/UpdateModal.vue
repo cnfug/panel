@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import ssh from '@/api/panel/ssh'
 import { NInput } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
+const { $gettext } = useGettext()
 const show = defineModel<boolean>('show', { type: Boolean, required: true })
 const id = defineModel<number>('id', { type: Number, required: true })
 const loading = ref(false)
@@ -17,34 +19,32 @@ const model = ref({
   remark: ''
 })
 
-const handleSubmit = async () => {
+const handleSubmit = () => {
   loading.value = true
-  await ssh
-    .update(id.value, model.value)
-    .then(() => {
-      window.$message.success('更新成功')
+  useRequest(ssh.update(id.value, model.value))
+    .onSuccess(() => {
       id.value = 0
       loading.value = false
       show.value = false
       window.$bus.emit('ssh:refresh')
+      window.$message.success($gettext('Updated successfully'))
     })
-    .catch(() => {
+    .onComplete(() => {
       loading.value = false
     })
 }
 
-watch(show, () => {
+watch(show, async () => {
   if (id.value > 0) {
-    ssh.get(id.value).then((res) => {
-      model.value.name = res.data.name
-      model.value.host = res.data.host
-      model.value.port = res.data.port
-      model.value.auth_method = res.data.config.auth_method
-      model.value.user = res.data.config.user
-      model.value.password = res.data.config.password
-      model.value.key = res.data.config.key
-      model.value.remark = res.data.remark
-    })
+    const data = await ssh.get(id.value)
+    model.value.name = data.name
+    model.value.host = data.host
+    model.value.port = data.port
+    model.value.auth_method = data.config.auth_method
+    model.value.user = data.config.user
+    model.value.password = data.config.password
+    model.value.key = data.config.key
+    model.value.remark = data.remark
   }
 })
 </script>
@@ -53,55 +53,57 @@ watch(show, () => {
   <n-modal
     v-model:show="show"
     preset="card"
-    title="创建主机"
+    :title="$gettext('Update Host')"
     style="width: 60vw"
     size="huge"
     :bordered="false"
     :segmented="false"
   >
     <n-form>
-      <n-form-item label="名称">
+      <n-form-item :label="$gettext('Name')">
         <n-input v-model:value="model.name" placeholder="127.0.0.1" />
       </n-form-item>
       <n-row :gutter="[0, 24]" pt-20>
         <n-col :span="15">
-          <n-form-item label="主机">
+          <n-form-item :label="$gettext('Host')">
             <n-input v-model:value="model.host" placeholder="127.0.0.1" />
           </n-form-item>
         </n-col>
         <n-col :span="2"> </n-col>
         <n-col :span="7">
-          <n-form-item label="端口">
+          <n-form-item :label="$gettext('Port')">
             <n-input-number v-model:value="model.port" :min="1" :max="65535" />
           </n-form-item>
         </n-col>
       </n-row>
-      <n-form-item label="认证方式">
+      <n-form-item :label="$gettext('Authentication Method')">
         <n-select
           v-model:value="model.auth_method"
           :options="[
-            { label: '密码', value: 'password' },
-            { label: '私钥', value: 'publickey' }
+            { label: $gettext('Password'), value: 'password' },
+            { label: $gettext('Private Key'), value: 'publickey' }
           ]"
         >
         </n-select>
       </n-form-item>
-      <n-form-item v-if="model.auth_method == 'password'" label="用户名">
+      <n-form-item v-if="model.auth_method == 'password'" :label="$gettext('Username')">
         <n-input v-model:value="model.user" placeholder="root" />
       </n-form-item>
-      <n-form-item v-if="model.auth_method == 'password'" label="密码">
+      <n-form-item v-if="model.auth_method == 'password'" :label="$gettext('Password')">
         <n-input v-model:value="model.password" type="password" show-password-on="click" />
       </n-form-item>
-      <n-form-item v-if="model.auth_method == 'publickey'" label="私钥">
+      <n-form-item v-if="model.auth_method == 'publickey'" :label="$gettext('Private Key')">
         <n-input v-model:value="model.key" type="textarea" />
       </n-form-item>
-      <n-form-item label="备注">
+      <n-form-item :label="$gettext('Remarks')">
         <n-input v-model:value="model.remark" type="textarea" />
       </n-form-item>
     </n-form>
     <n-row :gutter="[0, 24]" pt-20>
       <n-col :span="24">
-        <n-button type="info" block :loading="loading" @click="handleSubmit"> 提交 </n-button>
+        <n-button type="info" block :loading="loading" @click="handleSubmit">
+          {{ $gettext('Submit') }}
+        </n-button>
       </n-col>
     </n-row>
   </n-modal>

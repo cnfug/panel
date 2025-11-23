@@ -11,6 +11,7 @@ type WebsiteListen struct {
 type WebsiteSetting struct {
 	ID                uint            `json:"id"`
 	Name              string          `json:"name"`
+	Type              string          `json:"type"`
 	Listens           []WebsiteListen `form:"listens" json:"listens" validate:"required"`
 	Domains           []string        `json:"domains"`
 	Path              string          `json:"path"` // 网站目录
@@ -32,4 +33,5 @@ type WebsiteSetting struct {
 	Rewrite           string          `json:"rewrite"`
 	Raw               string          `json:"raw"`
 	Log               string          `json:"log"`
+	ErrorLog          string          `json:"error_log"`
 }

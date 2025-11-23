@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import file from '@/api/panel/file'
+import { decodeBase64 } from '@/utils'
 import { languageByPath } from '@/utils/file'
 import Editor from '@guolao/vue-monaco-editor'
+import { useGettext } from 'vue3-gettext'
 
+const { $gettext } = useGettext()
 const props = defineProps({
   path: {
     type: String,
@@ -15,27 +18,27 @@ const props = defineProps({
 })
 
 const disabled = ref(false) // 在出现错误的情况下禁用保存
-const data = ref('')
+const content = ref('')
 
-const get = async () => {
-  await file
-    .content(props.path)
-    .then((res) => {
-      data.value = res.data
-      window.$message.success('获取成功')
+const get = () => {
+  useRequest(file.content(encodeURIComponent(props.path)))
+    .onSuccess(({ data }) => {
+      content.value = decodeBase64(data.content)
+      window.$message.success($gettext('Retrieved successfully'))
     })
-    .catch(() => {
+    .onError(() => {
       disabled.value = true
     })
 }
 
-const save = async () => {
+const save = () => {
   if (disabled.value) {
-    window.$message.error('当前状态下不可保存')
+    window.$message.error($gettext('Cannot save in current state'))
     return
   }
-  await file.save(props.path, data.value)
-  window.$message.success('保存成功')
+  useRequest(file.save(props.path, content.value)).onSuccess(() => {
+    window.$message.success($gettext('Saved successfully'))
+  })
 }
 
 onMounted(() => {
@@ -50,14 +53,13 @@ defineExpose({
 
 <template>
   <Editor
-    v-model:value="data"
+    v-model:value="content"
     :language="languageByPath(props.path)"
     theme="vs-dark"
     height="60vh"
     :options="{
       automaticLayout: true,
-      formatOnType: true,
-      formatOnPaste: true,
+      smoothScrolling: true,
       wordWrap: 'on'
     }"
   />

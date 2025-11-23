@@ -4,17 +4,15 @@ defineOptions({
 })
 
 import { NButton, NDataTable, NInput, NPopconfirm, NSwitch } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
 import fail2ban from '@/api/apps/fail2ban'
 import app from '@/api/panel/app'
-import systemctl from '@/api/panel/systemctl'
 import website from '@/api/panel/website'
-import { renderIcon } from '@/utils'
-import type { Jail } from '@/views/apps/fail2ban/types'
+import ServiceStatus from '@/components/common/ServiceStatus.vue'
 
+const { $gettext } = useGettext()
 const currentTab = ref('status')
-const status = ref(false)
-const isEnabled = ref(false)
 const white = ref('')
 
 const addJailModal = ref(false)
@@ -34,25 +32,17 @@ const jailCurrentlyBan = ref(0)
 const jailTotalBan = ref(0)
 const jailBanedList = ref<any[]>([])
 
-const statusType = computed(() => {
-  return status.value ? 'success' : 'error'
-})
-const statusStr = computed(() => {
-  return status.value ? '正常运行中' : '已停止运行'
-})
-
 const jailsColumns: any = [
   {
-    title: '名称',
+    title: $gettext('Name'),
     key: 'name',
     minWidth: 250,
     ellipsis: { tooltip: true }
   },
   {
-    title: '状态',
+    title: $gettext('Status'),
     key: 'enabled',
     minWidth: 60,
-    align: 'center',
     render(row: any) {
       return h(NSwitch, {
         size: 'small',
@@ -62,21 +52,13 @@ const jailsColumns: any = [
       })
     }
   },
-  { title: '最大尝试', key: 'max_retry', minWidth: 150, ellipsis: { tooltip: true } },
-  { title: '封禁时间', key: 'ban_time', minWidth: 150, ellipsis: { tooltip: true } },
-  { title: '周期', key: 'find_time', minWidth: 150, ellipsis: { tooltip: true } },
+  { title: $gettext('Max Retries'), key: 'max_retry', minWidth: 150, ellipsis: { tooltip: true } },
+  { title: $gettext('Ban Time'), key: 'ban_time', minWidth: 150, ellipsis: { tooltip: true } },
+  { title: $gettext('Find Time'), key: 'find_time', minWidth: 150, ellipsis: { tooltip: true } },
   {
-    title: '日志路径',
-    key: 'log_path',
-    minWidth: 150,
-    resizable: true,
-    ellipsis: { tooltip: true }
-  },
-  {
-    title: '操作',
+    title: $gettext('Actions'),
     key: 'actions',
     width: 280,
-    align: 'center',
     hideInExcel: true,
     render(row: any) {
       return [
@@ -92,8 +74,7 @@ const jailsColumns: any = [
             }
           },
           {
-            default: () => '查看',
-            icon: renderIcon('material-symbols:visibility', { size: 14 })
+            default: () => $gettext('View')
           }
         ),
         h(
@@ -103,7 +84,7 @@ const jailsColumns: any = [
           },
           {
             default: () => {
-              return '确定删除规则' + row.name + '吗？'
+              return $gettext('Are you sure you want to delete rule %{ name }?', { name: row.name })
             },
             trigger: () => {
               return h(
@@ -114,8 +95,7 @@ const jailsColumns: any = [
                   style: 'margin-left: 15px'
                 },
                 {
-                  default: () => '删除',
-                  icon: renderIcon('material-symbols:delete-outline', { size: 14 })
+                  default: () => $gettext('Delete')
                 }
               )
             }
@@ -125,8 +105,6 @@ const jailsColumns: any = [
     }
   }
 ]
-
-const jails = ref<Jail[]>([])
 
 const banedIPColumns: any = [
   {
@@ -137,10 +115,9 @@ const banedIPColumns: any = [
     ellipsis: { tooltip: true }
   },
   {
-    title: '操作',
+    title: $gettext('Actions'),
     key: 'actions',
     width: 100,
-    align: 'center',
     hideInExcel: true,
     render(row: any) {
       return [
@@ -151,7 +128,7 @@ const banedIPColumns: any = [
           },
           {
             default: () => {
-              return '确定解封' + row.ip + '吗？'
+              return $gettext('Are you sure you want to unban %{ ip }?', { ip: row.ip })
             },
             trigger: () => {
               return h(
@@ -161,8 +138,7 @@ const banedIPColumns: any = [
                   type: 'error'
                 },
                 {
-                  default: () => '解封',
-                  icon: renderIcon('material-symbols:delete-outline', { size: 14 })
+                  default: () => $gettext('Unban')
                 }
               )
             }
@@ -173,31 +149,20 @@ const banedIPColumns: any = [
   }
 ]
 
-const pagination = reactive({
-  page: 1,
-  pageCount: 1,
-  pageSize: 20,
-  itemCount: 0,
-  showQuickJumper: true,
-  showSizePicker: true,
-  pageSizes: [20, 50, 100, 200]
-})
-
 const websites = ref<any[]>([])
 
 const getWhiteList = async () => {
-  await fail2ban.whitelist().then((res: any) => {
-    white.value = res.data
+  white.value = await fail2ban.whitelist()
+}
+
+const handleSaveWhiteList = () => {
+  useRequest(fail2ban.setWhitelist(white.value)).onSuccess(() => {
+    window.$message.success($gettext('Saved successfully'))
   })
 }
 
-const handleSaveWhiteList = async () => {
-  await fail2ban.setWhitelist(white.value)
-  window.$message.success('保存成功')
-}
-
 const getWebsiteList = async (page: number, limit: number) => {
-  const { data } = await website.list(page, limit)
+  const data = await website.list(page, limit)
   for (const item of data.items) {
     websites.value.push({
       label: item.name,
@@ -207,105 +172,50 @@ const getWebsiteList = async (page: number, limit: number) => {
   addJailModel.value.website_name = websites.value[0]?.value
 }
 
-const getJails = async (page: number, limit: number) => {
-  const { data } = await fail2ban.jails(page, limit)
-  return data
-}
-
-const onPageChange = (page: number) => {
-  pagination.page = page
-  getJails(page, pagination.pageSize).then((res) => {
-    jails.value = res.items
-    pagination.itemCount = res.total
-    pagination.pageCount = res.total / pagination.pageSize + 1
-  })
-}
-
-const onPageSizeChange = (pageSize: number) => {
-  pagination.pageSize = pageSize
-  onPageChange(1)
-}
-
-const getStatus = async () => {
-  await systemctl.status('fail2ban').then((res: any) => {
-    status.value = res.data
-  })
-}
-
-const getIsEnabled = async () => {
-  await systemctl.isEnabled('fail2ban').then((res: any) => {
-    isEnabled.value = res.data
-  })
-}
-
-const handleStart = async () => {
-  await systemctl.start('fail2ban')
-  window.$message.success('启动成功')
-  await getStatus()
-}
-
-const handleIsEnabled = async () => {
-  if (isEnabled.value) {
-    await systemctl.enable('fail2ban')
-    window.$message.success('开启自启动成功')
-  } else {
-    await systemctl.disable('fail2ban')
-    window.$message.success('禁用自启动成功')
+const { loading, data, page, total, pageSize, pageCount, refresh } = usePagination(
+  (page, pageSize) => fail2ban.jails(page, pageSize),
+  {
+    initialData: { total: 0, list: [] },
+    initialPageSize: 20,
+    total: (res: any) => res.total,
+    data: (res: any) => res.items
   }
-  await getIsEnabled()
+)
+
+const handleAddJail = () => {
+  useRequest(fail2ban.add(addJailModel.value)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Added successfully'))
+    addJailModal.value = false
+  })
 }
 
-const handleStop = async () => {
-  await systemctl.stop('fail2ban')
-  window.$message.success('停止成功')
-  await getStatus()
-}
-
-const handleRestart = async () => {
-  await systemctl.restart('fail2ban')
-  window.$message.success('重启成功')
-  await getStatus()
-}
-
-const handleReload = async () => {
-  await systemctl.reload('fail2ban')
-  window.$message.success('重载成功')
-  await getStatus()
-}
-
-const handleAddJail = async () => {
-  await fail2ban.add(addJailModel.value)
-  window.$message.success('添加成功')
-  addJailModal.value = false
-  onPageChange(1)
-}
-
-const handleDeleteJail = async (name: string) => {
-  await fail2ban.delete(name)
-  window.$message.success('删除成功')
-  onPageChange(1)
+const handleDeleteJail = (name: string) => {
+  useRequest(fail2ban.delete(name)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Deleted successfully'))
+  })
 }
 
 const getJailInfo = async (name: string) => {
-  const { data } = await fail2ban.jail(name)
+  const data = await fail2ban.jail(name)
   jailCurrentlyBan.value = data.currently_ban
   jailTotalBan.value = data.total_ban
   jailBanedList.value = data.baned_list
 }
 
-const handleUnBan = async (name: string, ip: string) => {
-  await fail2ban.unban(name, ip)
-  window.$message.success('解封成功')
-  await getJailInfo(name)
+const handleUnBan = (name: string, ip: string) => {
+  useRequest(fail2ban.unban(name, ip)).onSuccess(() => {
+    window.$message.success($gettext('Unbanned successfully'))
+    getJailInfo(name)
+  })
 }
 
 onMounted(() => {
-  getStatus()
-  getIsEnabled()
+  refresh()
   getWhiteList()
-  onPageChange(1)
-  app.isInstalled('nginx').then((res) => {
-    if (res.data.installed) {
+  useRequest(app.isInstalled('nginx')).onSuccess(({ data }) => {
+    if (data) {
       getWebsiteList(1, 10000)
     }
   })
@@ -314,137 +224,127 @@ onMounted(() => {
 
 <template>
   <common-page show-footer>
-    <template #action>
-      <n-button
-        v-if="currentTab == 'status'"
-        class="ml-16"
-        type="primary"
-        @click="handleSaveWhiteList"
-      >
-        <TheIcon :size="18" icon="material-symbols:save-outline" />
-        保存白名单
-      </n-button>
-      <n-button
-        v-if="currentTab == 'jails'"
-        class="ml-16"
-        type="primary"
-        @click="addJailModal = true"
-      >
-        <TheIcon :size="18" icon="material-symbols:add" />
-        添加规则
-      </n-button>
-    </template>
     <n-tabs v-model:value="currentTab" type="line" animated>
-      <n-tab-pane name="status" tab="运行状态">
-        <n-space vertical>
-          <n-card title="运行状态" rounded-10>
-            <template #header-extra>
-              <n-switch v-model:value="isEnabled" @update:value="handleIsEnabled">
-                <template #checked> 自启动开 </template>
-                <template #unchecked> 自启动关 </template>
-              </n-switch>
-            </template>
-            <n-space vertical>
-              <n-alert :type="statusType">
-                {{ statusStr }}
-              </n-alert>
-              <n-space>
-                <n-button type="success" @click="handleStart">
-                  <TheIcon :size="24" icon="material-symbols:play-arrow-outline-rounded" />
-                  启动
-                </n-button>
-                <n-popconfirm @positive-click="handleStop">
-                  <template #trigger>
-                    <n-button type="error">
-                      <TheIcon :size="24" icon="material-symbols:stop-outline-rounded" />
-                      停止
-                    </n-button>
-                  </template>
-                  停止 Fail2ban 会导致所有规则失效，确定停止吗？
-                </n-popconfirm>
-                <n-button type="warning" @click="handleRestart">
-                  <TheIcon :size="18" icon="material-symbols:replay-rounded" />
-                  重启
-                </n-button>
-                <n-button type="primary" @click="handleReload">
-                  <TheIcon :size="20" icon="material-symbols:refresh-rounded" />
-                  重载
-                </n-button>
-              </n-space>
-            </n-space>
-          </n-card>
-          <n-card title="IP 白名单" rounded-10>
+      <n-tab-pane name="status" :tab="$gettext('Running Status')">
+        <n-flex vertical>
+          <service-status service="fail2ban" show-reload />
+          <n-card :title="$gettext('IP Whitelist')">
             <n-input
               v-model:value="white"
               type="textarea"
               autosize
-              placeholder="IP 白名单，以英文逗号,分隔"
+              :placeholder="$gettext('IP whitelist, separated by commas')"
             />
           </n-card>
-        </n-space>
+          <n-flex>
+            <n-button type="primary" @click="handleSaveWhiteList">
+              {{ $gettext('Save Whitelist') }}
+            </n-button>
+          </n-flex>
+        </n-flex>
       </n-tab-pane>
-      <n-tab-pane name="jails" tab="规则管理">
-        <n-card title="规则列表" :segmented="true" rounded-10>
-          <n-data-table
-            striped
-            remote
-            :scroll-x="1000"
-            :loading="false"
-            :columns="jailsColumns"
-            :data="jails"
-            :row-key="(row: any) => row.name"
-            @update:page="onPageChange"
-            @update:page-size="onPageSizeChange"
-          />
-        </n-card>
+      <n-tab-pane name="jails" :tab="$gettext('Rule Management')">
+        <n-flex>
+          <n-card :title="$gettext('Rule List')" :segmented="true">
+            <n-data-table
+              striped
+              remote
+              :scroll-x="1000"
+              :loading="loading"
+              :columns="jailsColumns"
+              :data="data"
+              :row-key="(row: any) => row.name"
+              v-model:page="page"
+              v-model:pageSize="pageSize"
+              :pagination="{
+                page: page,
+                pageCount: pageCount,
+                pageSize: pageSize,
+                itemCount: total,
+                showQuickJumper: true,
+                showSizePicker: true,
+                pageSizes: [20, 50, 100, 200]
+              }"
+            />
+          </n-card>
+          <n-flex>
+            <n-button
+              v-if="currentTab == 'jails'"
+              class="ml-16"
+              type="primary"
+              @click="addJailModal = true"
+            >
+              {{ $gettext('Add Rule') }}
+            </n-button>
+          </n-flex>
+        </n-flex>
+      </n-tab-pane>
+      <n-tab-pane name="run-log" :tab="$gettext('Runtime Logs')">
+        <realtime-log service="fail2ban" />
       </n-tab-pane>
     </n-tabs>
   </common-page>
-  <n-modal v-model:show="addJailModal" title="添加规则">
-    <n-card closable @close="() => (addJailModal = false)" title="添加规则" style="width: 60vw">
+  <n-modal v-model:show="addJailModal" :title="$gettext('Add Rule')">
+    <n-card
+      closable
+      @close="() => (addJailModal = false)"
+      :title="$gettext('Add Rule')"
+      style="width: 60vw"
+    >
       <n-space vertical>
         <n-alert type="info">
-          在设置周期内(秒)有超过最大重试(次)的IP访问，将禁止该IP禁止时间(秒)
+          {{
+            $gettext(
+              'If an IP exceeds the maximum retries within the find time (seconds), it will be banned for the ban time (seconds)'
+            )
+          }}
         </n-alert>
         <n-alert type="warning">
-          防护端口自动获取，如果修改了规则项对应的端口，请删除重新添加，否则防护可能不会生效
+          {{
+            $gettext(
+              'Protected ports are automatically obtained. If you modify the port corresponding to a rule, please delete and re-add the rule, otherwise protection may not be effective'
+            )
+          }}
         </n-alert>
 
         <n-form :model="addJailModel">
-          <n-form-item label="类型">
+          <n-form-item :label="$gettext('Type')">
             <n-select
               v-model:value="addJailModel.type"
               :options="[
-                { label: '网站', value: 'website' },
-                { label: '服务', value: 'service' }
+                { label: $gettext('Website'), value: 'website' },
+                { label: $gettext('Service'), value: 'service' }
               ]"
             >
             </n-select>
           </n-form-item>
-          <n-form-item v-if="addJailModel.type === 'website'" label="选择网站">
+          <n-form-item v-if="addJailModel.type === 'website'" :label="$gettext('Select Website')">
             <n-select
               v-model:value="addJailModel.website_name"
               :options="websites"
-              placeholder="选择网站"
+              :placeholder="$gettext('Select Website')"
             />
           </n-form-item>
-          <n-form-item v-if="addJailModel.type === 'website'" label="保护模式">
+          <n-form-item v-if="addJailModel.type === 'website'" :label="$gettext('Protection Mode')">
             <n-select
               v-model:value="addJailModel.website_mode"
               :options="[
                 { label: 'CC', value: 'cc' },
-                { label: '路径', value: 'path' }
+                { label: $gettext('Path'), value: 'path' }
               ]"
             >
             </n-select>
           </n-form-item>
           <n-form-item
             v-if="addJailModel.type === 'website' && addJailModel.website_mode === 'path'"
-            label="保护路径"
+            :label="$gettext('Protection Path')"
           >
-            <n-input v-model:value="addJailModel.website_path" placeholder="保护路径" />
+            <n-input
+              v-model:value="addJailModel.website_path"
+              :placeholder="$gettext('Protection Path')"
+            />
           </n-form-item>
-          <n-form-item v-if="addJailModel.type === 'service'" label="服务">
+          <n-form-item v-if="addJailModel.type === 'service'" :label="$gettext('Service')">
             <n-select
               v-model:value="addJailModel.name"
               :options="[
@@ -455,36 +355,41 @@ onMounted(() => {
             >
             </n-select>
           </n-form-item>
-          <n-form-item path="maxretry" label="最大尝试">
+          <n-form-item path="maxretry" :label="$gettext('Max Retries')">
             <n-input-number v-model:value="addJailModel.maxretry" @keydown.enter.prevent :min="1" />
           </n-form-item>
-          <n-form-item path="findtime" label="周期">
+          <n-form-item path="findtime" :label="$gettext('Find Time')">
             <n-input-number v-model:value="addJailModel.findtime" @keydown.enter.prevent :min="1" />
           </n-form-item>
-          <n-form-item path="bantime" label="禁止时间">
+          <n-form-item path="bantime" :label="$gettext('Ban Time')">
             <n-input-number v-model:value="addJailModel.bantime" @keydown.enter.prevent :min="1" />
           </n-form-item>
         </n-form>
-        <n-button type="info" block @click="handleAddJail">提交</n-button>
+        <n-button type="info" block @click="handleAddJail">{{ $gettext('Submit') }}</n-button>
       </n-space>
     </n-card>
   </n-modal>
-  <n-modal v-model:show="jailModal" title="查看规则">
-    <n-card closable @close="() => (jailModal = false)" title="查看规则" style="width: 60vw">
+  <n-modal v-model:show="jailModal" :title="$gettext('View Rule')">
+    <n-card
+      closable
+      @close="() => (jailModal = false)"
+      :title="$gettext('View Rule')"
+      style="width: 60vw"
+    >
       <n-space vertical>
-        <n-card title="规则信息" :segmented="true" rounded-10>
+        <n-card :title="$gettext('Rule Information')" :segmented="true">
           <n-space vertical>
             <n-space>
-              <n-text>当前封禁</n-text>
+              <n-text>{{ $gettext('Currently Banned') }}</n-text>
               <n-text>{{ jailCurrentlyBan }}</n-text>
             </n-space>
             <n-space>
-              <n-text>总封禁</n-text>
+              <n-text>{{ $gettext('Total Bans') }}</n-text>
               <n-text>{{ jailTotalBan }}</n-text>
             </n-space>
           </n-space>
         </n-card>
-        <n-card title="封禁列表" :segmented="true" rounded-10>
+        <n-card :title="$gettext('Ban List')" :segmented="true">
           <n-data-table
             striped
             remote

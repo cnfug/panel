@@ -1,16 +1,12 @@
-import type { AxiosResponse } from 'axios'
-
-import { request } from '@/utils'
+import { http } from '@/utils'
 
 export default {
   // 获取信息
-  info: (): Promise<AxiosResponse<any>> => request.get('/apps/phpmyadmin/info'),
+  info: (): any => http.Get('/apps/phpmyadmin/info'),
   // 设置端口
-  port: (port: number): Promise<AxiosResponse<any>> =>
-    request.post('/apps/phpmyadmin/port', { port }),
+  port: (port: number): any => http.Post('/apps/phpmyadmin/port', { port }),
   // 获取配置
-  getConfig: (): Promise<AxiosResponse<any>> => request.get('/apps/phpmyadmin/config'),
+  config: (): any => http.Get('/apps/phpmyadmin/config'),
   // 保存配置
-  saveConfig: (config: string): Promise<AxiosResponse<any>> =>
-    request.post('/apps/phpmyadmin/config', { config })
+  updateConfig: (config: string): any => http.Post('/apps/phpmyadmin/config', { config })
 }

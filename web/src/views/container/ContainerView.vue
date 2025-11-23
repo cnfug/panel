@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import Editor from '@guolao/vue-monaco-editor'
 import { NButton, NDataTable, NDropdown, NFlex, NInput, NSwitch, NTag } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
 import container from '@/api/panel/container'
 import ContainerCreate from '@/views/container/ContainerCreate.vue'
-import type { ContainerList } from '@/views/container/types'
 
-const data = ref<ContainerList[]>([] as ContainerList[])
+const { $gettext } = useGettext()
 
 const logModal = ref(false)
 const logs = ref('')
@@ -19,21 +19,17 @@ const renameModel = ref({
 const containerCreateModal = ref(false)
 const selectedRowKeys = ref<any>([])
 
-const onChecked = (rowKeys: any) => {
-  selectedRowKeys.value = rowKeys
-}
-
 const columns: any = [
   { type: 'selection', fixed: 'left' },
   {
-    title: '容器名',
+    title: $gettext('Container Name'),
     key: 'name',
     minWidth: 150,
     resizable: true,
     ellipsis: { tooltip: true }
   },
   {
-    title: '状态',
+    title: $gettext('Status'),
     key: 'state',
     width: 100,
     resizable: true,
@@ -53,7 +49,7 @@ const columns: any = [
     }
   },
   {
-    title: '镜像',
+    title: $gettext('Image'),
     key: 'image',
     minWidth: 300,
     resizable: true,
@@ -64,7 +60,7 @@ const columns: any = [
     }
   },
   {
-    title: '端口（主机->容器）',
+    title: $gettext('Ports (Host->Container)'),
     key: 'ports',
     minWidth: 200,
     resizable: true,
@@ -73,25 +69,28 @@ const columns: any = [
         default: () =>
           row.ports.map((port: any) =>
             h(NTag, null, {
-              default: () =>
-                `${port.host ? port.host + ':' : ''}${port.container_start}->${port.host_start}/${port.protocol}`
+              default: () => {
+                if (port.container_start == port.container_end) {
+                  return `${port.host ? port.host + ':' : ''}${port.host_start}->${port.container_start}/${port.protocol}`
+                }
+                return `${port.host ? port.host + ':' : ''}${port.host_start}-${port.host_end}->${port.container_start}-${port.container_end}/${port.protocol}`
+              }
             })
           )
       })
     }
   },
   {
-    title: '运行状态',
+    title: $gettext('Running Status'),
     key: 'status',
     width: 300,
     resizable: true,
     ellipsis: { tooltip: true }
   },
   {
-    title: '操作',
+    title: $gettext('Actions'),
     key: 'actions',
     width: 250,
-    align: 'center',
     hideInExcel: true,
     render(row: any) {
       return [
@@ -104,7 +103,7 @@ const columns: any = [
             onClick: () => handleShowLog(row)
           },
           {
-            default: () => '日志'
+            default: () => $gettext('Logs')
           }
         ),
         h(
@@ -120,7 +119,7 @@ const columns: any = [
             }
           },
           {
-            default: () => '重命名'
+            default: () => $gettext('Rename')
           }
         ),
         h(
@@ -128,37 +127,37 @@ const columns: any = [
           {
             options: [
               {
-                label: '启动',
+                label: $gettext('Start'),
                 key: 'start',
                 disabled: row.state === 'running'
               },
               {
-                label: '停止',
+                label: $gettext('Stop'),
                 key: 'stop',
                 disabled: row.state !== 'running'
               },
               {
-                label: '重启',
+                label: $gettext('Restart'),
                 key: 'restart',
                 disabled: row.state !== 'running'
               },
               {
-                label: '强制停止',
+                label: $gettext('Force Stop'),
                 key: 'forceStop',
                 disabled: row.state !== 'running'
               },
               {
-                label: '暂停',
+                label: $gettext('Pause'),
                 key: 'pause',
                 disabled: row.state !== 'running'
               },
               {
-                label: '恢复',
+                label: $gettext('Resume'),
                 key: 'unpause',
                 disabled: row.state === 'running'
               },
               {
-                label: '删除',
+                label: $gettext('Delete'),
                 key: 'delete'
               }
             ],
@@ -198,7 +197,7 @@ const columns: any = [
                   style: 'margin-left: 15px;'
                 },
                 {
-                  default: () => '更多'
+                  default: () => $gettext('More')
                 }
               )
             }
@@ -209,266 +208,242 @@ const columns: any = [
   }
 ]
 
-const pagination = reactive({
-  page: 1,
-  pageCount: 1,
-  pageSize: 20,
-  itemCount: 0,
-  showQuickJumper: true,
-  showSizePicker: true,
-  pageSizes: [20, 50, 100, 200]
-})
-
-const onPageChange = (page: number) => {
-  pagination.page = page
-  getContainerList(page, pagination.pageSize).then((res) => {
-    data.value = res.items
-    pagination.itemCount = res.total
-    pagination.pageCount = res.total / pagination.pageSize + 1
-  })
-}
-
-const onPageSizeChange = (pageSize: number) => {
-  pagination.pageSize = pageSize
-  onPageChange(1)
-}
-
-const getContainerList = async (page: number, pageSize: number) => {
-  const { data } = await container.containerList(page, pageSize)
-  return data
-}
+const { loading, data, page, total, pageSize, pageCount, refresh } = usePagination(
+  (page, pageSize) => container.containerList(page, pageSize),
+  {
+    initialData: { total: 0, list: [] },
+    initialPageSize: 20,
+    total: (res: any) => res.total,
+    data: (res: any) => res.items
+  }
+)
 
 const handleShowLog = async (row: any) => {
-  container.containerLogs(row.id).then((res) => {
-    logs.value = res.data
+  useRequest(container.containerLogs(row.id)).onSuccess(({ data }) => {
+    logs.value = data
     logModal.value = true
   })
 }
 
 const handleRename = () => {
-  container.containerRename(renameModel.value.id, renameModel.value.name).then(() => {
-    window.$message.success('重命名成功')
-    renameModal.value = false
-    onPageChange(pagination.page)
-  })
+  useRequest(container.containerRename(renameModel.value.id, renameModel.value.name)).onSuccess(
+    () => {
+      refresh()
+      renameModal.value = false
+      window.$message.success($gettext('Rename successful'))
+    }
+  )
 }
 
 const handleStart = (id: string) => {
-  container.containerStart(id).then(() => {
-    window.$message.success('启动成功')
-    onPageChange(pagination.page)
+  useRequest(container.containerStart(id)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Start successful'))
   })
 }
 
 const handleStop = (id: string) => {
-  container.containerStop(id).then(() => {
-    window.$message.success('停止成功')
-    onPageChange(pagination.page)
+  useRequest(container.containerStop(id)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Stop successful'))
   })
 }
 
 const handleRestart = (id: string) => {
-  container.containerRestart(id).then(() => {
-    window.$message.success('重启成功')
-    onPageChange(pagination.page)
+  useRequest(container.containerRestart(id)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Restart successful'))
   })
 }
 
 const handleForceStop = (id: string) => {
-  container.containerKill(id).then(() => {
-    window.$message.success('强制停止成功')
-    onPageChange(pagination.page)
+  useRequest(container.containerKill(id)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Force stop successful'))
   })
 }
 
 const handlePause = (id: string) => {
-  container.containerPause(id).then(() => {
-    window.$message.success('暂停成功')
-    onPageChange(pagination.page)
+  useRequest(container.containerPause(id)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Pause successful'))
   })
 }
 
 const handleUnpause = (id: string) => {
-  container.containerUnpause(id).then(() => {
-    window.$message.success('恢复成功')
-    onPageChange(pagination.page)
+  useRequest(container.containerUnpause(id)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Resume successful'))
   })
 }
 
 const handleDelete = (id: string) => {
-  container.containerRemove(id).then(() => {
-    window.$message.success('删除成功')
-    onPageChange(pagination.page)
+  useRequest(container.containerRemove(id)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Delete successful'))
   })
 }
 
 const handlePrune = () => {
-  container.containerPrune().then(() => {
-    window.$message.success('清理成功')
-    onPageChange(pagination.page)
+  useRequest(container.containerPrune()).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Cleanup successful'))
   })
 }
 
 const bulkStart = async () => {
   if (selectedRowKeys.value.length === 0) {
-    window.$message.info('请选择要启动的容器')
+    window.$message.info($gettext('Please select containers to start'))
     return
   }
 
-  for (const id of selectedRowKeys.value) {
-    await container.containerStart(id).then(() => {
-      let container = data.value.find((item) => item.id === id)
-      window.$message.success(`${container?.name} 启动成功`)
-    })
-  }
+  const promises = selectedRowKeys.value.map((id: any) => container.containerStart(id))
+  await Promise.all(promises)
 
-  onPageChange(pagination.page)
+  selectedRowKeys.value = []
+  refresh()
+  window.$message.success($gettext('Start successful'))
 }
 
 const bulkStop = async () => {
   if (selectedRowKeys.value.length === 0) {
-    window.$message.info('请选择要停止的容器')
+    window.$message.info($gettext('Please select containers to stop'))
     return
   }
 
-  for (const id of selectedRowKeys.value) {
-    await container.containerStop(id).then(() => {
-      let container = data.value.find((item) => item.id === id)
-      window.$message.success(`${container?.name} 停止成功`)
-    })
-  }
+  const promises = selectedRowKeys.value.map((id: any) => container.containerStop(id))
+  await Promise.all(promises)
 
-  onPageChange(pagination.page)
+  selectedRowKeys.value = []
+  refresh()
+  window.$message.success($gettext('Stop successful'))
 }
 
 const bulkRestart = async () => {
   if (selectedRowKeys.value.length === 0) {
-    window.$message.info('请选择要重启的容器')
+    window.$message.info($gettext('Please select containers to restart'))
     return
   }
 
-  for (const id of selectedRowKeys.value) {
-    await container.containerRestart(id).then(() => {
-      let container = data.value.find((item) => item.id === id)
-      window.$message.success(`${container?.name} 重启成功`)
-    })
-  }
+  const promises = selectedRowKeys.value.map((id: any) => container.containerRestart(id))
+  await Promise.all(promises)
 
-  onPageChange(pagination.page)
+  selectedRowKeys.value = []
+  refresh()
+  window.$message.success($gettext('Restart successful'))
 }
 
 const bulkForceStop = async () => {
   if (selectedRowKeys.value.length === 0) {
-    window.$message.info('请选择要强制停止的容器')
+    window.$message.info($gettext('Please select containers to force stop'))
     return
   }
 
-  for (const id of selectedRowKeys.value) {
-    await container.containerKill(id).then(() => {
-      let container = data.value.find((item) => item.id === id)
-      window.$message.success(`${container?.name} 强制停止成功`)
-    })
-  }
+  const promises = selectedRowKeys.value.map((id: any) => container.containerKill(id))
+  await Promise.all(promises)
 
-  onPageChange(pagination.page)
+  selectedRowKeys.value = []
+  refresh()
+  window.$message.success($gettext('Force stop successful'))
 }
 
 const bulkDelete = async () => {
   if (selectedRowKeys.value.length === 0) {
-    window.$message.info('请选择要删除的容器')
+    window.$message.info($gettext('Please select containers to delete'))
     return
   }
 
-  for (const id of selectedRowKeys.value) {
-    await container.containerRemove(id).then(() => {
-      let container = data.value.find((item) => item.id === id)
-      window.$message.success(`${container?.name} 删除成功`)
-    })
-  }
+  const promises = selectedRowKeys.value.map((id: any) => container.containerRemove(id))
+  await Promise.all(promises)
 
-  onPageChange(pagination.page)
+  selectedRowKeys.value = []
+  refresh()
+  window.$message.success($gettext('Delete successful'))
 }
 
 const bulkPause = async () => {
   if (selectedRowKeys.value.length === 0) {
-    window.$message.info('请选择要暂停的容器')
+    window.$message.info($gettext('Please select containers to pause'))
     return
   }
 
-  for (const id of selectedRowKeys.value) {
-    await container.containerPause(id).then(() => {
-      let container = data.value.find((item) => item.id === id)
-      window.$message.success(`${container?.name} 暂停成功`)
-    })
-  }
+  const promises = selectedRowKeys.value.map((id: any) => container.containerPause(id))
+  await Promise.all(promises)
 
-  onPageChange(pagination.page)
+  selectedRowKeys.value = []
+  refresh()
+  window.$message.success($gettext('Pause successful'))
 }
 
 const bulkUnpause = async () => {
   if (selectedRowKeys.value.length === 0) {
-    window.$message.info('请选择要恢复的容器')
+    window.$message.info($gettext('Please select containers to resume'))
     return
   }
 
-  for (const id of selectedRowKeys.value) {
-    await container.containerUnpause(id).then(() => {
-      let container = data.value.find((item) => item.id === id)
-      window.$message.success(`${container?.name} 恢复成功`)
-    })
-  }
+  const promises = selectedRowKeys.value.map((id: any) => container.containerUnpause(id))
+  await Promise.all(promises)
 
-  onPageChange(pagination.page)
+  selectedRowKeys.value = []
+  refresh()
+  window.$message.success($gettext('Resume successful'))
 }
 
 const closeContainerCreateModal = () => {
   containerCreateModal.value = false
-  onPageChange(pagination.page)
+  refresh()
 }
 
 onMounted(() => {
-  onPageChange(pagination.page)
+  refresh()
 })
 </script>
 
 <template>
-  <n-space vertical size="large">
-    <n-card rounded-10>
-      <n-space>
-        <n-button type="primary" @click="containerCreateModal = true">创建容器</n-button>
-        <n-button type="primary" @click="handlePrune" ghost>清理容器</n-button>
-        <n-button-group>
-          <n-button @click="bulkStart">启动</n-button>
-          <n-button @click="bulkStop">停止</n-button>
-          <n-button @click="bulkRestart">重启</n-button>
-          <n-button @click="bulkForceStop">强制停止</n-button>
-          <n-button @click="bulkPause">暂停</n-button>
-          <n-button @click="bulkUnpause">恢复</n-button>
-          <n-button @click="bulkDelete">删除</n-button>
-        </n-button-group>
-      </n-space>
-    </n-card>
-    <n-card rounded-10>
-      <n-data-table
-        striped
-        remote
-        :scroll-x="1000"
-        :data="data"
-        :columns="columns"
-        :row-key="(row: any) => row.id"
-        :pagination="pagination"
-        :bordered="false"
-        :loading="false"
-        @update:page="onPageChange"
-        @update:page-size="onPageSizeChange"
-        @update:checked-row-keys="onChecked"
-      />
-    </n-card>
-  </n-space>
+  <n-flex vertical :size="20">
+    <n-flex>
+      <n-button type="primary" @click="containerCreateModal = true">{{
+        $gettext('Create Container')
+      }}</n-button>
+      <n-button type="primary" @click="handlePrune" ghost>{{
+        $gettext('Cleanup Containers')
+      }}</n-button>
+      <n-button-group>
+        <n-button @click="bulkStart">{{ $gettext('Start') }}</n-button>
+        <n-button @click="bulkStop">{{ $gettext('Stop') }}</n-button>
+        <n-button @click="bulkRestart">{{ $gettext('Restart') }}</n-button>
+        <n-button @click="bulkForceStop">{{ $gettext('Force Stop') }}</n-button>
+        <n-button @click="bulkPause">{{ $gettext('Pause') }}</n-button>
+        <n-button @click="bulkUnpause">{{ $gettext('Resume') }}</n-button>
+        <n-button @click="bulkDelete">{{ $gettext('Delete') }}</n-button>
+      </n-button-group>
+    </n-flex>
+    <n-data-table
+      striped
+      remote
+      :loading="loading"
+      :scroll-x="1000"
+      :data="data"
+      :columns="columns"
+      :row-key="(row: any) => row.id"
+      v-model:checked-row-keys="selectedRowKeys"
+      v-model:page="page"
+      v-model:pageSize="pageSize"
+      :pagination="{
+        page: page,
+        pageCount: pageCount,
+        pageSize: pageSize,
+        itemCount: total,
+        showQuickJumper: true,
+        showSizePicker: true,
+        pageSizes: [20, 50, 100, 200]
+      }"
+    />
+  </n-flex>
   <n-modal
     v-model:show="logModal"
     preset="card"
-    title="日志"
+    :title="$gettext('Logs')"
     style="width: 80vw"
     size="huge"
     :bordered="false"
@@ -482,8 +457,7 @@ onMounted(() => {
       mt-8
       :options="{
         automaticLayout: true,
-        formatOnType: true,
-        formatOnPaste: true,
+        smoothScrolling: true,
         readOnly: true
       }"
     />
@@ -491,23 +465,23 @@ onMounted(() => {
   <n-modal
     v-model:show="renameModal"
     preset="card"
-    title="重命名"
+    :title="$gettext('Rename')"
     style="width: 60vw"
     size="huge"
     :bordered="false"
     :segmented="false"
   >
     <n-form :model="renameModel">
-      <n-form-item path="name" label="新名称">
+      <n-form-item path="name" :label="$gettext('New Name')">
         <n-input
           v-model:value="renameModel.name"
           type="text"
           @keydown.enter.prevent
-          placeholder="输入新名称"
+          :placeholder="$gettext('Enter new name')"
         />
       </n-form-item>
     </n-form>
-    <n-button type="info" block @click="handleRename">提交</n-button>
+    <n-button type="info" block @click="handleRename">{{ $gettext('Submit') }}</n-button>
   </n-modal>
   <ContainerCreate :show="containerCreateModal" @close="closeContainerCreateModal" />
 </template>

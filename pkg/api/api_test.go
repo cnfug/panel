@@ -13,17 +13,22 @@ type APITestSuite struct {
 
 func TestAPITestSuite(t *testing.T) {
 	suite.Run(t, &APITestSuite{
-		api: NewAPI("2.3.0"),
+		api: NewAPI("3.0.0", "en"),
 	})
 }
 
 func (s *APITestSuite) TestGetLatestVersion() {
-	_, err := s.api.LatestVersion()
+	_, err := s.api.LatestVersion("stable")
 	s.NoError(err)
 }
 
 func (s *APITestSuite) TestGetIntermediateVersions() {
-	_, err := s.api.IntermediateVersions()
+	_, err := s.api.IntermediateVersions("stable")
+	s.NoError(err)
+}
+
+func (s *APITestSuite) TestGetCategories() {
+	_, err := s.api.Categories()
 	s.NoError(err)
 }
 
@@ -34,6 +39,26 @@ func (s *APITestSuite) TestGetApps() {
 
 func (s *APITestSuite) TestGetAppBySlug() {
 	_, err := s.api.AppBySlug("nginx")
+	s.NoError(err)
+}
+
+func (s *APITestSuite) TestAppCallback() {
+	err := s.api.AppCallback("nginx")
+	s.NoError(err)
+}
+
+func (s *APITestSuite) TestGetTemplates() {
+	_, err := s.api.Templates()
+	s.NoError(err)
+}
+
+func (s *APITestSuite) TestGetTemplateBySlug() {
+	_, err := s.api.TemplateBySlug("nginx")
+	s.NoError(err)
+}
+
+func (s *APITestSuite) TestTemplateCallback() {
+	err := s.api.TemplateCallback("nginx")
 	s.NoError(err)
 }
 

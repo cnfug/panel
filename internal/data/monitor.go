@@ -1,48 +1,49 @@
 package data
 
 import (
-	"errors"
 	"time"
 
 	"github.com/spf13/cast"
+	"gorm.io/gorm"
 
-	"github.com/TheTNB/panel/internal/app"
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/internal/http/request"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/internal/http/request"
 )
 
 type monitorRepo struct {
-	settingRepo biz.SettingRepo
+	db      *gorm.DB
+	setting biz.SettingRepo
 }
 
-func NewMonitorRepo() biz.MonitorRepo {
+func NewMonitorRepo(db *gorm.DB, setting biz.SettingRepo) biz.MonitorRepo {
 	return &monitorRepo{
-		settingRepo: NewSettingRepo(),
+		db:      db,
+		setting: setting,
 	}
 }
 
 func (r monitorRepo) GetSetting() (*request.MonitorSetting, error) {
-	monitor, err := r.settingRepo.Get(biz.SettingKeyMonitor)
+	monitor, err := r.setting.Get(biz.SettingKeyMonitor)
 	if err != nil {
 		return nil, err
 	}
-	monitorDays, err := r.settingRepo.Get(biz.SettingKeyMonitorDays)
+	monitorDays, err := r.setting.Get(biz.SettingKeyMonitorDays)
 	if err != nil {
 		return nil, err
 	}
 
 	setting := new(request.MonitorSetting)
 	setting.Enabled = cast.ToBool(monitor)
-	setting.Days = cast.ToInt(monitorDays)
+	setting.Days = cast.ToUint(monitorDays)
 
 	return setting, nil
 }
 
 func (r monitorRepo) UpdateSetting(setting *request.MonitorSetting) error {
-	if err := r.settingRepo.Set(biz.SettingKeyMonitor, cast.ToString(setting.Enabled)); err != nil {
+	if err := r.setting.Set(biz.SettingKeyMonitor, cast.ToString(setting.Enabled)); err != nil {
 		return err
 	}
-	if err := r.settingRepo.Set(biz.SettingKeyMonitorDays, cast.ToString(setting.Days)); err != nil {
+	if err := r.setting.Set(biz.SettingKeyMonitorDays, cast.ToString(setting.Days)); err != nil {
 		return err
 	}
 
@@ -50,17 +51,13 @@ func (r monitorRepo) UpdateSetting(setting *request.MonitorSetting) error {
 }
 
 func (r monitorRepo) Clear() error {
-	return app.Orm.Where("1 = 1").Delete(&biz.Monitor{}).Error
+	return r.db.Where("1 = 1").Delete(&biz.Monitor{}).Error
 }
 
 func (r monitorRepo) List(start, end time.Time) ([]*biz.Monitor, error) {
-	var monitors []*biz.Monitor
-	if err := app.Orm.Where("created_at BETWEEN ? AND ?", start, end).Find(&monitors).Error; err != nil {
+	monitors := make([]*biz.Monitor, 0)
+	if err := r.db.Where("created_at BETWEEN ? AND ?", start, end).Find(&monitors).Error; err != nil {
 		return nil, err
-	}
-
-	if len(monitors) == 0 {
-		return nil, errors.New("没有找到数据")
 	}
 
 	return monitors, nil

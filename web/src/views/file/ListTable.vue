@@ -1,25 +1,47 @@
 <script setup lang="ts">
-import { NButton, NEllipsis, NFlex, NInput, NPopconfirm, NPopselect, NTag } from 'naive-ui'
+import {
+  NButton,
+  NDataTable,
+  NEllipsis,
+  NFlex,
+  NInput,
+  NPopconfirm,
+  NPopselect,
+  NTag
+} from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
 import type { DataTableColumns, DropdownOption } from 'naive-ui'
 import type { RowData } from 'naive-ui/es/data-table/src/interface'
 
 import file from '@/api/panel/file'
 import TheIcon from '@/components/custom/TheIcon.vue'
-import { checkName, checkPath, getExt, getFilename, getIconByExt, isCompress } from '@/utils/file'
+import {
+  checkName,
+  checkPath,
+  getExt,
+  getFilename,
+  getIconByExt,
+  isCompress,
+  isImage
+} from '@/utils/file'
 import EditModal from '@/views/file/EditModal.vue'
+import PreviewModal from '@/views/file/PreviewModal.vue'
 import type { Marked } from '@/views/file/types'
 
-const loading = ref(false)
+const { $gettext } = useGettext()
 const sort = ref<string>('')
-const path = defineModel<string>('path', { type: String, required: true })
+const path = defineModel<string>('path', { type: String, required: true }) // 当前路径
+const keyword = defineModel<string>('keyword', { type: String, default: '' }) // 搜索关键词
+const sub = defineModel<boolean>('sub', { type: Boolean, default: false }) // 搜索是否包括子目录
 const selected = defineModel<any[]>('selected', { type: Array, default: () => [] })
 const marked = defineModel<Marked[]>('marked', { type: Array, default: () => [] })
 const markedType = defineModel<string>('markedType', { type: String, required: true })
 const compress = defineModel<boolean>('compress', { type: Boolean, required: true })
 const permission = defineModel<boolean>('permission', { type: Boolean, required: true })
 const editorModal = ref(false)
-const editorFile = ref('')
+const previewModal = ref(false)
+const currentFile = ref('')
 
 const showDropdown = ref(false)
 const selectedRow = ref<any>()
@@ -39,30 +61,34 @@ const unCompressModel = ref({
 
 const options = computed<DropdownOption[]>(() => {
   if (selectedRow.value == null) return []
-  let options = [
+  const options = [
     {
-      label: selectedRow.value.dir ? '打开' : '编辑',
-      key: selectedRow.value.dir ? 'open' : 'edit'
+      label: selectedRow.value.dir
+        ? $gettext('Open')
+        : isImage(selectedRow.value.name)
+          ? $gettext('Preview')
+          : $gettext('Edit'),
+      key: selectedRow.value.dir ? 'open' : isImage(selectedRow.value.name) ? 'preview' : 'edit'
     },
-    { label: '复制', key: 'copy' },
-    { label: '移动', key: 'move' },
-    { label: '权限', key: 'permission' },
+    { label: $gettext('Copy'), key: 'copy' },
+    { label: $gettext('Move'), key: 'move' },
+    { label: $gettext('Permission'), key: 'permission' },
     {
-      label: selectedRow.value.dir ? '压缩' : '下载',
+      label: selectedRow.value.dir ? $gettext('Compress') : $gettext('Download'),
       key: selectedRow.value.dir ? 'compress' : 'download'
     },
     {
-      label: '解压',
+      label: $gettext('Uncompress'),
       key: 'uncompress',
       show: isCompress(selectedRow.value.full),
       disabled: !isCompress(selectedRow.value.full)
     },
-    { label: '重命名', key: 'rename' },
-    { label: () => h('span', { style: { color: 'red' } }, '删除'), key: 'delete' }
+    { label: $gettext('Rename'), key: 'rename' },
+    { label: () => h('span', { style: { color: 'red' } }, $gettext('Delete')), key: 'delete' }
   ]
   if (marked.value.length) {
     options.unshift({
-      label: '粘贴',
+      label: $gettext('Paste'),
       key: 'paste'
     })
   }
@@ -76,7 +102,7 @@ const columns: DataTableColumns<RowData> = [
     fixed: 'left'
   },
   {
-    title: '名称',
+    title: $gettext('Name'),
     key: 'name',
     minWidth: 180,
     defaultSortOrder: false,
@@ -92,18 +118,18 @@ const columns: DataTableColumns<RowData> = [
       return h(
         NFlex,
         {
-          class: 'table-name',
+          class: 'cursor-pointer hover:opacity-60',
           onClick: () => {
             if (row.dir) {
               path.value = row.full
             } else {
-              editorFile.value = row.full
+              currentFile.value = row.full
               editorModal.value = true
             }
           }
         },
         () => [
-          h(TheIcon, { icon, size: 24, color: `var(--primary-color)` }),
+          h(TheIcon, { icon, size: 24 }),
           h(NEllipsis, null, {
             default: () => {
               if (row.symlink) {
@@ -118,7 +144,7 @@ const columns: DataTableColumns<RowData> = [
     }
   },
   {
-    title: '权限',
+    title: $gettext('Permission'),
     key: 'mode',
     minWidth: 80,
     render(row: any): any {
@@ -130,7 +156,7 @@ const columns: DataTableColumns<RowData> = [
     }
   },
   {
-    title: '所有者 / 组',
+    title: $gettext('Owner / Group'),
     key: 'owner/group',
     minWidth: 120,
     render(row: any): any {
@@ -142,7 +168,7 @@ const columns: DataTableColumns<RowData> = [
     }
   },
   {
-    title: '大小',
+    title: $gettext('Size'),
     key: 'size',
     minWidth: 80,
     render(row: any): any {
@@ -150,7 +176,7 @@ const columns: DataTableColumns<RowData> = [
     }
   },
   {
-    title: '修改时间',
+    title: $gettext('Modification Time'),
     key: 'modify',
     minWidth: 200,
     render(row: any): any {
@@ -162,9 +188,9 @@ const columns: DataTableColumns<RowData> = [
     }
   },
   {
-    title: '操作',
+    title: $gettext('Actions'),
     key: 'action',
-    width: 340,
+    width: 400,
     render(row) {
       return h(
         NFlex,
@@ -179,8 +205,12 @@ const columns: DataTableColumns<RowData> = [
                 tertiary: true,
                 onClick: () => {
                   if (!row.dir && !row.symlink) {
-                    editorFile.value = row.full
-                    editorModal.value = true
+                    currentFile.value = row.full
+                    if (isImage(row.name)) {
+                      previewModal.value = true
+                    } else {
+                      editorModal.value = true
+                    }
                   } else {
                     path.value = row.full
                   }
@@ -189,9 +219,9 @@ const columns: DataTableColumns<RowData> = [
               {
                 default: () => {
                   if (!row.dir && !row.symlink) {
-                    return '编辑'
+                    return isImage(row.name) ? $gettext('Preview') : $gettext('Edit')
                   } else {
-                    return '打开'
+                    return $gettext('Open')
                   }
                 }
               }
@@ -214,9 +244,9 @@ const columns: DataTableColumns<RowData> = [
               {
                 default: () => {
                   if (row.dir) {
-                    return '压缩'
+                    return $gettext('Compress')
                   } else {
-                    return '下载'
+                    return $gettext('Download')
                   }
                 }
               }
@@ -233,22 +263,22 @@ const columns: DataTableColumns<RowData> = [
                   renameModal.value = true
                 }
               },
-              { default: () => '重命名' }
+              { default: () => $gettext('Rename') }
             ),
             h(
               NPopconfirm,
               {
                 onPositiveClick: () => {
-                  file.delete(row.full).then(() => {
-                    window.$message.success('删除成功')
+                  useRequest(file.delete(row.full)).onComplete(() => {
                     window.$bus.emit('file:refresh')
+                    window.$message.success($gettext('Deleted successfully'))
                   })
                 },
                 onNegativeClick: () => {}
               },
               {
                 default: () => {
-                  return '确定删除吗？'
+                  return $gettext('Are you sure you want to delete %{ name }?', { name: row.name })
                 },
                 trigger: () => {
                   return h(
@@ -258,7 +288,7 @@ const columns: DataTableColumns<RowData> = [
                       type: 'error',
                       tertiary: true
                     },
-                    { default: () => '删除' }
+                    { default: () => $gettext('Delete') }
                   )
                 }
               }
@@ -267,11 +297,15 @@ const columns: DataTableColumns<RowData> = [
               NPopselect,
               {
                 options: [
-                  { label: '复制', value: 'copy' },
-                  { label: '移动', value: 'move' },
-                  { label: '权限', value: 'permission' },
-                  { label: '压缩', value: 'compress' },
-                  { label: '解压', value: 'uncompress', disabled: !isCompress(row.name) }
+                  { label: $gettext('Copy'), value: 'copy' },
+                  { label: $gettext('Move'), value: 'move' },
+                  { label: $gettext('Permission'), value: 'permission' },
+                  { label: $gettext('Compress'), value: 'compress' },
+                  {
+                    label: $gettext('Uncompress'),
+                    value: 'uncompress',
+                    disabled: !isCompress(row.name)
+                  }
                 ],
                 onUpdateValue: (value) => {
                   switch (value) {
@@ -284,7 +318,11 @@ const columns: DataTableColumns<RowData> = [
                           force: false
                         }
                       ]
-                      window.$message.success('标记成功，请前往目标路径粘贴')
+                      window.$message.success(
+                        $gettext(
+                          'Marked successfully, please navigate to the destination path to paste'
+                        )
+                      )
                       break
                     case 'move':
                       markedType.value = 'move'
@@ -295,7 +333,11 @@ const columns: DataTableColumns<RowData> = [
                           force: false
                         }
                       ]
-                      window.$message.success('标记成功，请前往目标路径粘贴')
+                      window.$message.success(
+                        $gettext(
+                          'Marked successfully, please navigate to the destination path to paste'
+                        )
+                      )
                       break
                     case 'permission':
                       selected.value = [row.full]
@@ -321,7 +363,7 @@ const columns: DataTableColumns<RowData> = [
                       tertiary: true,
                       size: 'small'
                     },
-                    { default: () => '更多' }
+                    { default: () => $gettext('More') }
                   )
                 }
               }
@@ -348,78 +390,64 @@ const rowProps = (row: any) => {
   }
 }
 
-const data = ref<RowData[]>([])
+const { loading, data, page, total, pageSize, pageCount, refresh } = usePagination(
+  (page, pageSize) =>
+    file.list(encodeURIComponent(path.value), keyword.value, sub.value, sort.value, page, pageSize),
+  {
+    initialData: { total: 0, list: [] },
+    initialPageSize: 100,
+    total: (res: any) => res.total,
+    data: (res: any) => res.items
+  }
+)
 
-const pagination = reactive({
-  page: 1,
-  pageCount: 1,
-  pageSize: 100,
-  itemCount: 0,
-  showQuickJumper: true,
-  showSizePicker: true,
-  pageSizes: [100, 200, 500, 1000, 1500, 2000, 5000]
-})
-
-const handlePageSizeChange = (pageSize: number) => {
-  pagination.pageSize = pageSize
-  handlePageChange(1)
-}
-
-const handlePageChange = async (page: number) => {
-  loading.value = true
-  await getList(path.value, page, pagination.pageSize!).finally(() => {
-    loading.value = false
-  })
-}
-
-const handleRefresh = async () => {
-  loading.value = true
-  await getList(path.value, pagination.page, pagination.pageSize!).finally(() => {
-    loading.value = false
-  })
-}
-
-const getList = async (path: string, page: number, limit: number) => {
-  await file.list(path, page, limit, sort.value).then((res) => {
-    data.value = res.data.items
-    pagination.page = page
-    pagination.itemCount = res.data.total
-    pagination.pageCount = res.data.total / pagination.pageSize! + 1
-  })
-}
-
-const handleRename = async () => {
+const handleRename = () => {
   const source = path.value + '/' + renameModel.value.source
   const target = path.value + '/' + renameModel.value.target
   if (!checkName(renameModel.value.source) || !checkName(renameModel.value.target)) {
-    window.$message.error('名称不合法')
+    window.$message.error($gettext('Invalid name'))
     return
   }
 
-  await file.exist([source]).then(async (res) => {
-    if (res.data[0]) {
+  useRequest(file.exist([target])).onSuccess(({ data }) => {
+    if (data[0]) {
       window.$dialog.warning({
-        title: '警告',
-        content: `存在同名项，是否强制覆盖？`,
-        positiveText: '覆盖',
-        negativeText: '取消',
-        onPositiveClick: async () => {
-          await file.move([{ source, target, force: true }])
-          window.$message.success(
-            `重命名 ${renameModel.value.source} 为 ${renameModel.value.target} 成功`
-          )
+        title: $gettext('Warning'),
+        content: $gettext('There are items with the same name. Do you want to overwrite?'),
+        positiveText: $gettext('Overwrite'),
+        negativeText: $gettext('Cancel'),
+        onPositiveClick: () => {
+          useRequest(file.move([{ source, target, force: true }]))
+            .onSuccess(() => {
+              window.$bus.emit('file:refresh')
+              window.$message.success(
+                $gettext('Renamed %{ source } to %{ target } successfully', {
+                  source: renameModel.value.source,
+                  target: renameModel.value.target
+                })
+              )
+            })
+            .onComplete(() => {
+              renameModal.value = false
+            })
         }
       })
     } else {
-      await file.move([{ source, target, force: true }])
-      window.$message.success(
-        `重命名 ${renameModel.value.source} 为 ${renameModel.value.target} 成功`
-      )
+      useRequest(file.move([{ source, target, force: false }]))
+        .onSuccess(() => {
+          window.$bus.emit('file:refresh')
+          window.$message.success(
+            $gettext('Renamed %{ source } to %{ target } successfully', {
+              source: renameModel.value.source,
+              target: renameModel.value.target
+            })
+          )
+        })
+        .onComplete(() => {
+          renameModal.value = false
+        })
     }
   })
-
-  renameModal.value = false
-  window.$bus.emit('file:refresh')
 }
 
 const handleUnCompress = () => {
@@ -428,39 +456,32 @@ const handleUnCompress = () => {
     !unCompressModel.value.path.startsWith('/') ||
     !checkPath(unCompressModel.value.path.slice(1))
   ) {
-    window.$message.error('路径不合法')
+    window.$message.error($gettext('Invalid path'))
     return
   }
-  const message = window.$message.loading('正在解压中...', {
+  const message = window.$message.loading($gettext('Uncompressing...'), {
     duration: 0
   })
-  file
-    .unCompress(unCompressModel.value.file, unCompressModel.value.path)
-    .then(() => {
-      message?.destroy()
-      window.$message.success('解压成功')
+  useRequest(file.unCompress(unCompressModel.value.file, unCompressModel.value.path))
+    .onSuccess(() => {
       unCompressModal.value = false
       window.$bus.emit('file:refresh')
+      window.$message.success($gettext('Uncompressed successfully'))
     })
-    .catch(() => {
+    .onComplete(() => {
       message?.destroy()
-      window.$message.error('解压失败')
     })
 }
 
-const onChecked = (rowKeys: any) => {
-  selected.value = rowKeys
-}
-
-const handlePaste = async () => {
+const handlePaste = () => {
   if (!marked.value.length) {
-    window.$message.error('请先标记需要复制或移动的文件/文件夹')
+    window.$message.error($gettext('Please mark the files/folders to copy or move first'))
     return
   }
 
   // 查重
   let flag = false
-  let paths = marked.value.map((item) => {
+  const paths = marked.value.map((item) => {
     return {
       name: item.name,
       source: item.source,
@@ -469,53 +490,61 @@ const handlePaste = async () => {
     }
   })
   const sources = paths.map((item: any) => item.target)
-  await file.exist(sources).then(async (res) => {
-    for (let i = 0; i < res.data.length; i++) {
-      if (res.data[i]) {
+  useRequest(file.exist(sources)).onSuccess(({ data }) => {
+    for (let i = 0; i < data.length; i++) {
+      if (data[i]) {
         flag = true
         paths[i].force = true
       }
     }
     if (flag) {
       window.$dialog.warning({
-        title: '警告',
-        content: `存在同名项
-      ${paths
-        .filter((item) => item.force)
-        .map((item) => item.name)
-        .join(', ')} 是否覆盖？`,
-        positiveText: '覆盖',
-        negativeText: '取消',
-        onPositiveClick: async () => {
+        title: $gettext('Warning'),
+        content: $gettext(
+          'There are items with the same name %{ items } Do you want to overwrite?',
+          {
+            items: `${paths
+              .filter((item) => item.force)
+              .map((item) => item.name)
+              .join(', ')}`
+          }
+        ),
+        positiveText: $gettext('Overwrite'),
+        negativeText: $gettext('Cancel'),
+        onPositiveClick: () => {
           if (markedType.value == 'copy') {
-            await file.copy(paths).then(() => {
-              window.$message.success('复制成功')
+            useRequest(file.copy(paths)).onSuccess(() => {
+              marked.value = []
+              window.$bus.emit('file:refresh')
+              window.$message.success($gettext('Copied successfully'))
             })
           } else {
-            await file.move(paths).then(() => {
-              window.$message.success('移动成功')
+            useRequest(file.move(paths)).onSuccess(() => {
+              marked.value = []
+              window.$bus.emit('file:refresh')
+              window.$message.success($gettext('Moved successfully'))
             })
           }
-          marked.value = []
-          window.$bus.emit('file:refresh')
         },
         onNegativeClick: () => {
           marked.value = []
-          window.$message.info('已取消')
+          window.$message.info($gettext('Canceled'))
         }
       })
     } else {
       if (markedType.value == 'copy') {
-        await file.copy(paths).then(() => {
-          window.$message.success('复制成功')
+        useRequest(file.copy(paths)).onSuccess(() => {
+          marked.value = []
+          window.$bus.emit('file:refresh')
+          window.$message.success($gettext('Copied successfully'))
         })
       } else {
-        await file.move(paths).then(() => {
-          window.$message.success('移动成功')
+        useRequest(file.move(paths)).onSuccess(() => {
+          marked.value = []
+          window.$bus.emit('file:refresh')
+          window.$message.success($gettext('Moved successfully'))
         })
       }
-      marked.value = []
-      window.$bus.emit('file:refresh')
     }
   })
 }
@@ -529,8 +558,12 @@ const handleSelect = (key: string) => {
       path.value = selectedRow.value.full
       break
     case 'edit':
-      editorFile.value = selectedRow.value.full
+      currentFile.value = selectedRow.value.full
       editorModal.value = true
+      break
+    case 'preview':
+      currentFile.value = selectedRow.value.full
+      previewModal.value = true
       break
     case 'copy':
       markedType.value = 'copy'
@@ -541,7 +574,9 @@ const handleSelect = (key: string) => {
           force: false
         }
       ]
-      window.$message.success('标记成功，请前往目标路径粘贴')
+      window.$message.success(
+        $gettext('Marked successfully, please navigate to the destination path to paste')
+      )
       break
     case 'move':
       markedType.value = 'move'
@@ -552,7 +587,9 @@ const handleSelect = (key: string) => {
           force: false
         }
       ]
-      window.$message.success('标记成功，请前往目标路径粘贴')
+      window.$message.success(
+        $gettext('Marked successfully, please navigate to the destination path to paste')
+      )
       break
     case 'permission':
       selected.value = [selectedRow.value.full]
@@ -576,9 +613,9 @@ const handleSelect = (key: string) => {
       renameModal.value = true
       break
     case 'delete':
-      file.delete(selectedRow.value.full).then(() => {
-        window.$message.success('删除成功')
+      useRequest(file.delete(selectedRow.value.full)).onSuccess(() => {
         window.$bus.emit('file:refresh')
+        window.$message.success($gettext('Deleted successfully'))
       })
       break
   }
@@ -599,15 +636,21 @@ const handleSorterChange = (sorter: {
       switch (sorter.order) {
         case 'ascend':
           sort.value = 'asc'
-          handleRefresh()
+          nextTick(() => {
+            refresh()
+          })
           break
         case 'descend':
           sort.value = 'desc'
-          handleRefresh()
+          nextTick(() => {
+            refresh()
+          })
           break
         default:
           sort.value = ''
-          handleRefresh()
+          nextTick(() => {
+            refresh()
+          })
           break
       }
     }
@@ -615,16 +658,30 @@ const handleSorterChange = (sorter: {
 }
 
 onMounted(() => {
+  // 监听路径变化并刷新列表
   watch(
     path,
     () => {
       selected.value = []
-      handlePageChange(1)
-      window.$bus.emit('push-history', path.value)
+      keyword.value = ''
+      sub.value = false
+      nextTick(() => {
+        refresh()
+      })
+      window.$bus.emit('file:push-history', path.value)
     },
     { immediate: true }
   )
-  window.$bus.on('file:refresh', handleRefresh)
+  // 监听搜索事件
+  window.$bus.on('file:search', () => {
+    selected.value = []
+    nextTick(() => {
+      refresh()
+    })
+    window.$bus.emit('file:push-history', path.value)
+  })
+  // 监听刷新事件
+  window.$bus.on('file:refresh', refresh)
 })
 
 onUnmounted(() => {
@@ -643,14 +700,21 @@ onUnmounted(() => {
     :data="data"
     :row-props="rowProps"
     :loading="loading"
-    :pagination="pagination"
     :row-key="(row: any) => row.full"
-    :checked-row-keys="selected"
     max-height="60vh"
-    @update:page="handlePageChange"
-    @update:page-size="handlePageSizeChange"
     @update:sorter="handleSorterChange"
-    @update:checked-row-keys="onChecked"
+    v-model:checked-row-keys="selected"
+    v-model:page="page"
+    v-model:pageSize="pageSize"
+    :pagination="{
+      page: page,
+      pageCount: pageCount,
+      pageSize: pageSize,
+      itemCount: total,
+      showQuickJumper: true,
+      showSizePicker: true,
+      pageSizes: [100, 200, 500, 1000, 1500, 2000, 5000]
+    }"
   />
   <n-dropdown
     placement="bottom-start"
@@ -662,11 +726,12 @@ onUnmounted(() => {
     :on-clickoutside="onCloseDropdown"
     @select="handleSelect"
   />
-  <edit-modal v-model:show="editorModal" v-model:file="editorFile" />
+  <edit-modal v-model:show="editorModal" v-model:file="currentFile" />
+  <preview-modal v-model:show="previewModal" v-model:path="currentFile" />
   <n-modal
     v-model:show="renameModal"
     preset="card"
-    :title="'重命名 - ' + renameModel.source"
+    :title="$gettext('Rename - %{ source }', { source: renameModel.source })"
     style="width: 60vw"
     size="huge"
     :bordered="false"
@@ -674,17 +739,17 @@ onUnmounted(() => {
   >
     <n-flex vertical>
       <n-form>
-        <n-form-item label="新名称">
+        <n-form-item :label="$gettext('New Name')">
           <n-input v-model:value="renameModel.target" />
         </n-form-item>
       </n-form>
-      <n-button type="primary" @click="handleRename">保存</n-button>
+      <n-button type="primary" @click="handleRename">{{ $gettext('Save') }}</n-button>
     </n-flex>
   </n-modal>
   <n-modal
     v-model:show="unCompressModal"
     preset="card"
-    :title="'解压缩 - ' + unCompressModel.file"
+    :title="$gettext('Uncompress - %{ file }', { file: unCompressModel.file })"
     style="width: 60vw"
     size="huge"
     :bordered="false"
@@ -692,22 +757,11 @@ onUnmounted(() => {
   >
     <n-flex vertical>
       <n-form>
-        <n-form-item label="解压到">
+        <n-form-item :label="$gettext('Uncompress to')">
           <n-input v-model:value="unCompressModel.path" />
         </n-form-item>
       </n-form>
-      <n-button type="primary" @click="handleUnCompress">解压</n-button>
+      <n-button type="primary" @click="handleUnCompress">{{ $gettext('Uncompress') }}</n-button>
     </n-flex>
   </n-modal>
 </template>
-
-<style scoped lang="scss">
-:deep(.table-name) {
-  cursor: pointer;
-}
-
-:deep(.table-name:hover) {
-  color: var(--primary-color);
-  opacity: 0.6;
-}
-</style>

@@ -3,13 +3,13 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"slices"
+	"strings"
 
 	_ "github.com/lib/pq"
 
-	"github.com/TheTNB/panel/pkg/io"
-	"github.com/TheTNB/panel/pkg/shell"
-	"github.com/TheTNB/panel/pkg/systemctl"
-	"github.com/TheTNB/panel/pkg/types"
+	"github.com/acepanel/panel/pkg/systemctl"
+	"github.com/acepanel/panel/pkg/types"
 )
 
 type Postgres struct {
@@ -17,14 +17,18 @@ type Postgres struct {
 	username string
 	password string
 	address  string
-	hbaFile  string
 	port     uint
 }
 
-func NewPostgres(username, password, address string, port uint, hbaFile string) (*Postgres, error) {
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=postgres sslmode=disable", address, port, username, password)
+func NewPostgres(username, password, address string, port uint) (*Postgres, error) {
+	username = strings.ReplaceAll(username, `'`, `\'`)
+	password = strings.ReplaceAll(password, `'`, `\'`)
+	dsn := fmt.Sprintf(`host=%s port=%d user='%s' password='%s' dbname=postgres sslmode=disable`, address, port, username, password)
 	if password == "" {
-		dsn = fmt.Sprintf("host=%s port=%d user=%s dbname=postgres sslmode=disable", address, port, username)
+		if username == "" {
+			username = "postgres"
+		}
+		dsn = fmt.Sprintf(`host=%s port=%d user='%s' dbname=postgres sslmode=disable`, address, port, username)
 	}
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -38,64 +42,76 @@ func NewPostgres(username, password, address string, port uint, hbaFile string) 
 		username: username,
 		password: password,
 		address:  address,
-		hbaFile:  hbaFile,
 		port:     port,
 	}, nil
 }
 
-func (m *Postgres) Close() error {
-	return m.db.Close()
+func (r *Postgres) Close() error {
+	return r.db.Close()
 }
 
-func (m *Postgres) Ping() error {
-	return m.db.Ping()
+func (r *Postgres) Ping() error {
+	return r.db.Ping()
 }
 
-func (m *Postgres) Query(query string, args ...any) (*sql.Rows, error) {
-	return m.db.Query(query, args...)
+func (r *Postgres) Query(query string, args ...any) (*sql.Rows, error) {
+	return r.db.Query(query, args...)
 }
 
-func (m *Postgres) QueryRow(query string, args ...any) *sql.Row {
-	return m.db.QueryRow(query, args...)
+func (r *Postgres) QueryRow(query string, args ...any) *sql.Row {
+	return r.db.QueryRow(query, args...)
 }
 
-func (m *Postgres) Exec(query string, args ...any) (sql.Result, error) {
-	return m.db.Exec(query, args...)
+func (r *Postgres) Exec(query string, args ...any) (sql.Result, error) {
+	return r.db.Exec(query, args...)
 }
 
-func (m *Postgres) Prepare(query string) (*sql.Stmt, error) {
-	return m.db.Prepare(query)
+func (r *Postgres) Prepare(query string) (*sql.Stmt, error) {
+	return r.db.Prepare(query)
 }
 
-func (m *Postgres) DatabaseCreate(name string) error {
-	_, err := m.Exec(fmt.Sprintf("CREATE DATABASE %s", name))
+func (r *Postgres) DatabaseCreate(name string) error {
+	// postgres 不支持 CREATE DATABASE IF NOT EXISTS，但是为了保持与 MySQL 一致，先检查数据库是否存在
+	exist, err := r.DatabaseExist(name)
+	if err != nil {
+		return err
+	}
+	if exist {
+		return nil
+	}
+	_, err = r.Exec(fmt.Sprintf("CREATE DATABASE %s", name))
 	return err
 }
 
-func (m *Postgres) DatabaseDrop(name string) error {
-	_, err := m.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", name))
+func (r *Postgres) DatabaseDrop(name string) error {
+	_, err := r.Exec(fmt.Sprintf("DROP DATABASE IF EXISTS %s", name))
 	return err
 }
 
-func (m *Postgres) DatabaseExist(name string) (bool, error) {
+func (r *Postgres) DatabaseExist(name string) (bool, error) {
 	var count int
-	if err := m.QueryRow("SELECT COUNT(*) FROM pg_database WHERE datname = $1", name).Scan(&count); err != nil {
+	if err := r.QueryRow("SELECT COUNT(*) FROM pg_database WHERE datname = $1", name).Scan(&count); err != nil {
 		return false, err
 	}
 	return count > 0, nil
 }
 
-func (m *Postgres) DatabaseSize(name string) (int64, error) {
+func (r *Postgres) DatabaseSize(name string) (int64, error) {
 	query := fmt.Sprintf("SELECT pg_database_size('%s')", name)
 	var size int64
-	if err := m.QueryRow(query).Scan(&size); err != nil {
+	if err := r.QueryRow(query).Scan(&size); err != nil {
 		return 0, err
 	}
 	return size, nil
 }
 
-func (m *Postgres) UserCreate(user, password string) error {
-	_, err := m.Exec(fmt.Sprintf("CREATE USER %s WITH PASSWORD '%s'", user, password))
+func (r *Postgres) DatabaseComment(name, comment string) error {
+	_, err := r.Exec(fmt.Sprintf("COMMENT ON DATABASE %s IS '%s'", name, comment))
+	return err
+}
+
+func (r *Postgres) UserCreate(user, password string) error {
+	_, err := r.Exec(fmt.Sprintf("CREATE USER %s WITH PASSWORD '%s'", user, password))
 	if err != nil {
 		return err
 	}
@@ -103,56 +119,73 @@ func (m *Postgres) UserCreate(user, password string) error {
 	return nil
 }
 
-func (m *Postgres) UserDrop(user string) error {
-	_, err := m.Exec(fmt.Sprintf("DROP USER IF EXISTS %s", user))
+func (r *Postgres) UserDrop(user string) error {
+	_, err := r.Exec(fmt.Sprintf("DROP USER IF EXISTS %s", user))
 	if err != nil {
 		return err
 	}
 
-	_, _ = shell.Execf(`sed -i '/%s/d' %s`, user, m.hbaFile)
 	return systemctl.Reload("postgresql")
 }
 
-func (m *Postgres) UserPassword(user, password string) error {
-	_, err := m.Exec(fmt.Sprintf("ALTER USER %s WITH PASSWORD '%s'", user, password))
+func (r *Postgres) UserPassword(user, password string) error {
+	_, err := r.Exec(fmt.Sprintf("ALTER USER %s WITH PASSWORD '%s'", user, password))
 	return err
 }
 
-func (m *Postgres) PrivilegesGrant(user, database string) error {
-	if _, err := m.Exec(fmt.Sprintf("ALTER DATABASE %s OWNER TO %s", database, user)); err != nil {
+func (r *Postgres) UserPrivileges(user string) ([]string, error) {
+	query := `
+        SELECT d.datname
+        FROM pg_catalog.pg_database d
+        JOIN pg_catalog.pg_roles r ON d.datdba = r.oid
+        WHERE r.rolname = $1
+        AND d.datistemplate = false
+        AND d.datname NOT IN ('template0', 'template1', 'postgres')
+        ORDER BY d.datname;
+    `
+
+	rows, err := r.Query(query, user)
+	if err != nil {
+		return nil, err
+	}
+	defer func(rows *sql.Rows) {
+		_ = rows.Close()
+	}(rows)
+
+	var databases []string
+
+	for rows.Next() {
+		var dbName string
+		if err = rows.Scan(&dbName); err != nil {
+			return nil, err
+		}
+		databases = append(databases, dbName)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return databases, nil
+}
+
+func (r *Postgres) PrivilegesGrant(user, database string) error {
+	if _, err := r.Exec(fmt.Sprintf("ALTER DATABASE %s OWNER TO %s", database, user)); err != nil {
 		return err
 	}
-	if _, err := m.Exec(fmt.Sprintf("GRANT ALL PRIVILEGES ON DATABASE %s TO %s", database, user)); err != nil {
+	if _, err := r.Exec(fmt.Sprintf("GRANT ALL PRIVILEGES ON DATABASE %s TO %s", database, user)); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *Postgres) PrivilegesRevoke(user, database string) error {
-	_, err := m.Exec(fmt.Sprintf("REVOKE ALL PRIVILEGES ON DATABASE %s FROM %s", database, user))
+func (r *Postgres) PrivilegesRevoke(user, database string) error {
+	_, err := r.Exec(fmt.Sprintf("REVOKE ALL PRIVILEGES ON DATABASE %s FROM %s", database, user))
 	return err
 }
 
-func (m *Postgres) HostAdd(database, user, host string) error {
-	config := fmt.Sprintf("host    %s    %s    %s    scram-sha-256", database, user, host)
-	if err := io.WriteAppend(m.hbaFile, config, 0644); err != nil {
-		return err
-	}
-
-	return systemctl.Reload("postgresql")
-}
-
-func (m *Postgres) HostRemove(database, user, host string) error {
-	regex := fmt.Sprintf(`host\s+%s\s+%s\s+%s`, database, user, host)
-	if _, err := shell.Execf(`sed -i '/%s/d' %s`, regex, m.hbaFile); err != nil {
-		return err
-	}
-
-	return systemctl.Reload("postgresql")
-}
-
-func (m *Postgres) Users() ([]types.PostgresUser, error) {
+func (r *Postgres) Users() ([]types.PostgresUser, error) {
 	query := `
         SELECT rolname,
                rolsuper,
@@ -163,11 +196,13 @@ func (m *Postgres) Users() ([]types.PostgresUser, error) {
         FROM pg_roles
         WHERE rolcanlogin = true;
     `
-	rows, err := m.Query(query)
+	rows, err := r.Query(query)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		_ = rows.Close()
+	}(rows)
 
 	var users []types.PostgresUser
 	for rows.Next() {
@@ -178,11 +213,11 @@ func (m *Postgres) Users() ([]types.PostgresUser, error) {
 		}
 
 		permissions := map[string]bool{
-			"超级用户":   super,
-			"创建角色":   canCreateRole,
-			"创建数据库":  canCreateDb,
-			"可以复制":   replication,
-			"绕过行级安全": bypassRls,
+			"Super":       super,
+			"CreateRole":  canCreateRole,
+			"CreateDB":    canCreateDb,
+			"Replication": replication,
+			"BypassRLS":   bypassRls,
 		}
 		for perm, enabled := range permissions {
 			if enabled {
@@ -197,26 +232,39 @@ func (m *Postgres) Users() ([]types.PostgresUser, error) {
 		users = append(users, user)
 	}
 
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
 	return users, nil
 }
 
-func (m *Postgres) Databases() ([]types.PostgresDatabase, error) {
+func (r *Postgres) Databases() ([]types.PostgresDatabase, error) {
 	query := `
-        SELECT d.datname, pg_catalog.pg_get_userbyid(d.datdba), pg_catalog.pg_encoding_to_char(d.encoding)
+        SELECT 
+            d.datname, 
+            pg_catalog.pg_get_userbyid(d.datdba), 
+            pg_catalog.pg_encoding_to_char(d.encoding),
+            COALESCE(pg_catalog.shobj_description(d.oid, 'pg_database'), '')
         FROM pg_catalog.pg_database d
         WHERE datistemplate = false;
     `
-	rows, err := m.Query(query)
+	rows, err := r.Query(query)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		_ = rows.Close()
+	}(rows)
 
 	var databases []types.PostgresDatabase
 	for rows.Next() {
 		var db types.PostgresDatabase
-		if err := rows.Scan(&db.Name, &db.Owner, &db.Encoding); err != nil {
+		if err := rows.Scan(&db.Name, &db.Owner, &db.Encoding, &db.Comment); err != nil {
 			return nil, err
+		}
+		if slices.Contains([]string{"template0", "template1", "postgres"}, db.Name) {
+			continue
 		}
 		databases = append(databases, db)
 	}

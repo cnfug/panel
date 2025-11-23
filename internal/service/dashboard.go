@@ -7,60 +7,67 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/go-rat/chix"
-	"github.com/go-rat/utils/collect"
 	"github.com/hashicorp/go-version"
+	"github.com/knadh/koanf/v2"
+	"github.com/leonelquinteros/gotext"
+	"github.com/libtnb/chix"
+	"github.com/libtnb/utils/collect"
 	"github.com/shirou/gopsutil/disk"
 	"github.com/shirou/gopsutil/host"
 	"github.com/spf13/cast"
 
-	"github.com/TheTNB/panel/internal/app"
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/internal/data"
-	"github.com/TheTNB/panel/internal/http/request"
-	"github.com/TheTNB/panel/pkg/api"
-	"github.com/TheTNB/panel/pkg/db"
-	"github.com/TheTNB/panel/pkg/shell"
-	"github.com/TheTNB/panel/pkg/tools"
-	"github.com/TheTNB/panel/pkg/types"
+	"github.com/acepanel/panel/internal/app"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/internal/http/request"
+	"github.com/acepanel/panel/pkg/api"
+	"github.com/acepanel/panel/pkg/db"
+	"github.com/acepanel/panel/pkg/shell"
+	"github.com/acepanel/panel/pkg/tools"
+	"github.com/acepanel/panel/pkg/types"
 )
 
 type DashboardService struct {
+	t           *gotext.Locale
 	api         *api.API
+	conf        *koanf.Koanf
 	taskRepo    biz.TaskRepo
 	websiteRepo biz.WebsiteRepo
 	appRepo     biz.AppRepo
 	settingRepo biz.SettingRepo
 	cronRepo    biz.CronRepo
+	backupRepo  biz.BackupRepo
 }
 
-func NewDashboardService() *DashboardService {
+func NewDashboardService(t *gotext.Locale, conf *koanf.Koanf, task biz.TaskRepo, website biz.WebsiteRepo, appRepo biz.AppRepo, setting biz.SettingRepo, cron biz.CronRepo, backupRepo biz.BackupRepo) *DashboardService {
 	return &DashboardService{
-		api:         api.NewAPI(app.Version),
-		taskRepo:    data.NewTaskRepo(),
-		websiteRepo: data.NewWebsiteRepo(),
-		appRepo:     data.NewAppRepo(),
-		settingRepo: data.NewSettingRepo(),
-		cronRepo:    data.NewCronRepo(),
+		t:           t,
+		api:         api.NewAPI(app.Version, app.Locale),
+		conf:        conf,
+		taskRepo:    task,
+		websiteRepo: website,
+		appRepo:     appRepo,
+		settingRepo: setting,
+		cronRepo:    cron,
+		backupRepo:  backupRepo,
 	}
 }
 
 func (s *DashboardService) Panel(w http.ResponseWriter, r *http.Request) {
 	name, _ := s.settingRepo.Get(biz.SettingKeyName)
 	if name == "" {
-		name = "耗子面板"
+		name = s.t.Get("AcePanel")
 	}
 
 	Success(w, chix.M{
 		"name":   name,
-		"locale": app.Conf.MustString("app.locale"),
+		"locale": s.conf.String("app.locale"),
 	})
 }
 
 func (s *DashboardService) HomeApps(w http.ResponseWriter, r *http.Request) {
 	apps, err := s.appRepo.GetHomeShow()
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "获取首页应用失败: %v", err)
+		Error(w, http.StatusInternalServerError, s.t.Get("failed to get home apps: %v", err))
 		return
 	}
 
@@ -80,7 +87,7 @@ func (s *DashboardService) Current(w http.ResponseWriter, r *http.Request) {
 func (s *DashboardService) SystemInfo(w http.ResponseWriter, r *http.Request) {
 	hostInfo, err := host.Info()
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "获取系统信息失败")
+		Error(w, http.StatusInternalServerError, s.t.Get("failed to get system info: %v", err))
 		return
 	}
 
@@ -107,6 +114,12 @@ func (s *DashboardService) SystemInfo(w http.ResponseWriter, r *http.Request) {
 		"procs":          hostInfo.Procs,
 		"hostname":       hostInfo.Hostname,
 		"panel_version":  app.Version,
+		"commit_hash":    app.CommitHash,
+		"build_id":       app.BuildID,
+		"build_time":     app.BuildTime,
+		"build_user":     app.BuildUser,
+		"build_host":     app.BuildHost,
+		"go_version":     app.GoVersion,
 		"kernel_arch":    hostInfo.KernelArch,
 		"kernel_version": hostInfo.KernelVersion,
 		"os_name":        hostInfo.Platform + " " + hostInfo.PlatformVersion,
@@ -120,7 +133,7 @@ func (s *DashboardService) SystemInfo(w http.ResponseWriter, r *http.Request) {
 func (s *DashboardService) CountInfo(w http.ResponseWriter, r *http.Request) {
 	websiteCount, err := s.websiteRepo.Count()
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "获取网站数量失败")
+		Error(w, http.StatusInternalServerError, s.t.Get("failed to get the total number of websites: %v", err))
 		return
 	}
 
@@ -132,7 +145,9 @@ func (s *DashboardService) CountInfo(w http.ResponseWriter, r *http.Request) {
 		rootPassword, _ := s.settingRepo.Get(biz.SettingKeyMySQLRootPassword)
 		mysql, err := db.NewMySQL("root", rootPassword, "/tmp/mysql.sock", "unix")
 		if err == nil {
-			defer mysql.Close()
+			defer func(mysql *db.MySQL) {
+				_ = mysql.Close()
+			}(mysql)
 			databases, err := mysql.Databases()
 			if err == nil {
 				databaseCount += len(databases)
@@ -140,9 +155,11 @@ func (s *DashboardService) CountInfo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if postgresqlInstalled {
-		postgres, err := db.NewPostgres("postgres", "", "127.0.0.1", 5432, fmt.Sprintf("%s/server/postgresql/data/pg_hba.conf", app.Root))
+		postgres, err := db.NewPostgres("postgres", "", "127.0.0.1", 5432)
 		if err == nil {
-			defer postgres.Close()
+			defer func(postgres *db.Postgres) {
+				_ = postgres.Close()
+			}(postgres)
 			databases, err := postgres.Databases()
 			if err == nil {
 				databaseCount += len(databases)
@@ -180,8 +197,8 @@ func (s *DashboardService) InstalledDbAndPhp(w http.ResponseWriter, r *http.Requ
 
 	var phpData []types.LVInt
 	var dbData []types.LV
-	phpData = append(phpData, types.LVInt{Value: 0, Label: "不使用"})
-	dbData = append(dbData, types.LV{Value: "0", Label: "不使用"})
+	phpData = append(phpData, types.LVInt{Value: 0, Label: s.t.Get("Not used")})
+	dbData = append(dbData, types.LV{Value: "0", Label: s.t.Get("Not used")})
 	for _, p := range php {
 		// 过滤 phpmyadmin
 		match := regexp.MustCompile(`php(\d+)`).FindStringSubmatch(p.Slug)
@@ -208,25 +225,26 @@ func (s *DashboardService) InstalledDbAndPhp(w http.ResponseWriter, r *http.Requ
 
 func (s *DashboardService) CheckUpdate(w http.ResponseWriter, r *http.Request) {
 	if offline, _ := s.settingRepo.GetBool(biz.SettingKeyOfflineMode); offline {
-		Error(w, http.StatusForbidden, "离线模式下无法检查更新")
+		Error(w, http.StatusForbidden, s.t.Get("unable to check for updates in offline mode"))
 		return
 	}
 
 	current := app.Version
-	latest, err := s.api.LatestVersion()
+	channel, _ := s.settingRepo.Get(biz.SettingKeyChannel)
+	latest, err := s.api.LatestVersion(channel)
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "获取最新版本失败")
+		Error(w, http.StatusInternalServerError, s.t.Get("failed to get the latest version: %v", err))
 		return
 	}
 
 	v1, err := version.NewVersion(current)
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "版本号解析失败")
+		Error(w, http.StatusInternalServerError, s.t.Get("failed to parse version: %v", err))
 		return
 	}
 	v2, err := version.NewVersion(latest.Version)
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "版本号解析失败")
+		Error(w, http.StatusInternalServerError, s.t.Get("failed to parse version: %v", err))
 		return
 	}
 	if v1.GreaterThanOrEqual(v2) {
@@ -243,35 +261,36 @@ func (s *DashboardService) CheckUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (s *DashboardService) UpdateInfo(w http.ResponseWriter, r *http.Request) {
 	if offline, _ := s.settingRepo.GetBool(biz.SettingKeyOfflineMode); offline {
-		Error(w, http.StatusForbidden, "离线模式下无法检查更新")
+		Error(w, http.StatusForbidden, s.t.Get("unable to check for updates in offline mode"))
 		return
 	}
 
 	current := app.Version
-	latest, err := s.api.LatestVersion()
+	channel, _ := s.settingRepo.Get(biz.SettingKeyChannel)
+	latest, err := s.api.LatestVersion(channel)
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "获取最新版本失败")
+		Error(w, http.StatusInternalServerError, s.t.Get("failed to get the latest version: %v", err))
 		return
 	}
 
 	v1, err := version.NewVersion(current)
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "版本号解析失败")
+		Error(w, http.StatusInternalServerError, s.t.Get("failed to parse version: %v", err))
 		return
 	}
 	v2, err := version.NewVersion(latest.Version)
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "版本号解析失败")
+		Error(w, http.StatusInternalServerError, s.t.Get("failed to parse version: %v", err))
 		return
 	}
 	if v1.GreaterThanOrEqual(v2) {
-		Error(w, http.StatusInternalServerError, "当前版本已是最新版本")
+		Error(w, http.StatusInternalServerError, s.t.Get("the current version is the latest version"))
 		return
 	}
 
-	versions, err := s.api.IntermediateVersions()
+	versions, err := s.api.IntermediateVersions(channel)
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "获取更新信息失败：%v", err)
+		Error(w, http.StatusInternalServerError, s.t.Get("failed to get the update information: %v", err))
 		return
 	}
 
@@ -280,30 +299,31 @@ func (s *DashboardService) UpdateInfo(w http.ResponseWriter, r *http.Request) {
 
 func (s *DashboardService) Update(w http.ResponseWriter, r *http.Request) {
 	if offline, _ := s.settingRepo.GetBool(biz.SettingKeyOfflineMode); offline {
-		Error(w, http.StatusForbidden, "离线模式下无法更新")
+		Error(w, http.StatusForbidden, s.t.Get("unable to update in offline mode"))
 		return
 	}
 
 	if s.taskRepo.HasRunningTask() {
-		Error(w, http.StatusInternalServerError, "后台任务正在运行，禁止更新，请稍后再试")
+		Error(w, http.StatusInternalServerError, s.t.Get("background task is running, updating is prohibited, please try again later"))
 		return
 	}
 
-	panel, err := s.api.LatestVersion()
+	channel, _ := s.settingRepo.Get(biz.SettingKeyChannel)
+	panel, err := s.api.LatestVersion(channel)
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "获取最新版本失败：%v", err)
+		Error(w, http.StatusInternalServerError, s.t.Get("failed to get the latest version: %v", err))
 		return
 	}
 
 	download := collect.First(panel.Downloads)
 	if download == nil {
-		Error(w, http.StatusInternalServerError, "获取下载链接失败")
+		Error(w, http.StatusInternalServerError, s.t.Get("failed to get the latest version download link"))
 		return
 	}
 	ver, url, checksum := panel.Version, download.URL, download.Checksum
 
 	app.Status = app.StatusUpgrade
-	if err = s.settingRepo.UpdatePanel(ver, url, checksum); err != nil {
+	if err = s.backupRepo.UpdatePanel(ver, url, checksum); err != nil {
 		app.Status = app.StatusFailed
 		Error(w, http.StatusInternalServerError, "%v", err)
 		return
@@ -316,7 +336,7 @@ func (s *DashboardService) Update(w http.ResponseWriter, r *http.Request) {
 
 func (s *DashboardService) Restart(w http.ResponseWriter, r *http.Request) {
 	if s.taskRepo.HasRunningTask() {
-		Error(w, http.StatusInternalServerError, "后台任务正在运行，禁止重启，请稍后再试")
+		Error(w, http.StatusInternalServerError, s.t.Get("background task is running, restart is prohibited, please try again later"))
 		return
 	}
 

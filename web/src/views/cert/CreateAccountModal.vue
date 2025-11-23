@@ -2,7 +2,9 @@
 import cert from '@/api/panel/cert'
 import type { MessageReactive } from 'naive-ui'
 import { NButton, NInput, NSpace } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
+const { $gettext } = useGettext()
 const show = defineModel<boolean>('show', { type: Boolean, required: true })
 
 const props = defineProps({
@@ -25,30 +27,32 @@ const model = ref<any>({
   email: '',
   kid: '',
   key_type: 'P256',
-  ca: 'googlecn'
+  ca: 'letsencrypt'
 })
 
 const showEAB = computed(() => {
   return model.value.ca === 'google' || model.value.ca === 'sslcom'
 })
 
-const handleCreateAccount = async () => {
-  messageReactive = window.$message.loading('正在向 CA 注册账号，请耐心等待', {
-    duration: 0
-  })
-  cert
-    .accountCreate(model.value)
-    .then(() => {
+const handleCreateAccount = () => {
+  messageReactive = window.$message.loading(
+    $gettext('Registering account with CA, please wait patiently'),
+    {
+      duration: 0
+    }
+  )
+  useRequest(cert.accountCreate(model.value))
+    .onSuccess(() => {
+      window.$bus.emit('cert:refresh-account')
+      window.$bus.emit('cert:refresh-async')
       show.value = false
-      window.$message.success('创建成功')
       model.value.email = ''
       model.value.hmac_encoded = ''
       model.value.kid = ''
+      window.$message.success($gettext('Created successfully'))
     })
-    .finally(() => {
+    .onComplete(() => {
       messageReactive?.destroy()
-      window.$bus.emit('cert:refresh-account')
-      window.$bus.emit('cert:refresh-async')
     })
 }
 </script>
@@ -57,40 +61,48 @@ const handleCreateAccount = async () => {
   <n-modal
     v-model:show="show"
     preset="card"
-    title="创建账号"
+    :title="$gettext('Create Account')"
     style="width: 60vw"
     size="huge"
     :bordered="false"
     :segmented="false"
   >
     <n-space vertical>
-      <n-alert type="info"> Google 和 SSL.com 需要先去官网获得 KID 和 HMAC 并填入 </n-alert>
+      <n-alert type="info">{{
+        $gettext(
+          'Google and SSL.com require obtaining KID and HMAC from their official websites first'
+        )
+      }}</n-alert>
       <n-alert type="warning">
-        境内无法使用 Google，其他 CA 视网络情况而定，建议使用 GoogleCN 或 Let's Encrypt
+        {{
+          $gettext(
+            "Google is not accessible in mainland China, other CAs depend on network conditions, recommend using Let's Encrypt"
+          )
+        }}
       </n-alert>
       <n-form :model="model">
-        <n-form-item path="ca" label="CA">
+        <n-form-item path="ca" :label="$gettext('CA')">
           <n-select
             v-model:value="model.ca"
-            placeholder="选择 CA"
+            :placeholder="$gettext('Select CA')"
             clearable
             :options="caProviders"
           />
         </n-form-item>
-        <n-form-item path="key_type" label="密钥类型">
+        <n-form-item path="key_type" :label="$gettext('Key Type')">
           <n-select
             v-model:value="model.key_type"
-            placeholder="选择密钥类型"
+            :placeholder="$gettext('Select key type')"
             clearable
             :options="algorithms"
           />
         </n-form-item>
-        <n-form-item path="email" label="邮箱">
+        <n-form-item path="email" :label="$gettext('Email')">
           <n-input
             v-model:value="model.email"
             type="text"
             @keydown.enter.prevent
-            placeholder="输入邮箱地址"
+            :placeholder="$gettext('Enter email address')"
           />
         </n-form-item>
         <n-form-item v-if="showEAB" path="kid" label="KID">
@@ -98,7 +110,7 @@ const handleCreateAccount = async () => {
             v-model:value="model.kid"
             type="text"
             @keydown.enter.prevent
-            placeholder="输入 KID"
+            :placeholder="$gettext('Enter KID')"
           />
         </n-form-item>
         <n-form-item v-if="showEAB" path="hmac_encoded" label="HMAC">
@@ -106,11 +118,11 @@ const handleCreateAccount = async () => {
             v-model:value="model.hmac_encoded"
             type="text"
             @keydown.enter.prevent
-            placeholder="输入 HMAC"
+            :placeholder="$gettext('Enter HMAC')"
           />
         </n-form-item>
       </n-form>
-      <n-button type="info" block @click="handleCreateAccount">提交</n-button>
+      <n-button type="info" block @click="handleCreateAccount">{{ $gettext('Submit') }}</n-button>
     </n-space>
   </n-modal>
 </template>

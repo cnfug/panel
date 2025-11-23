@@ -11,6 +11,8 @@ _cgo_gotypes.go
 _cgo_export.*
 
 # 编译文件
+ace
+cli
 *.com
 *.class
 *.dll
@@ -63,3 +65,6 @@ out/
 *.sublime*
 __debug_bin
 .project
+
+# 傻逼 node_modules
+node_modules/

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import firewall from '@/api/panel/firewall'
 import safe from '@/api/panel/safe'
+import { useGettext } from 'vue3-gettext'
 
+const { $gettext } = useGettext()
 const model = ref({
   firewallStatus: false,
   sshStatus: false,
@@ -9,59 +11,51 @@ const model = ref({
   sshPort: 22
 })
 
-const fetchSetting = async () => {
-  firewall.status().then((res) => {
-    model.value.firewallStatus = res.data
-  })
-  safe.ssh().then((res) => {
-    model.value.sshStatus = res.data.status
-    model.value.sshPort = res.data.port
-  })
-  safe.pingStatus().then((res) => {
-    model.value.pingStatus = res.data
-  })
-}
+useRequest(firewall.status).onSuccess(({ data }) => {
+  model.value.firewallStatus = data
+})
+useRequest(safe.ssh).onSuccess(({ data }) => {
+  model.value.sshStatus = data.status
+  model.value.sshPort = data.port
+})
+useRequest(safe.pingStatus).onSuccess(({ data }) => {
+  model.value.pingStatus = data
+})
 
 const handleFirewallStatus = () => {
-  firewall.updateStatus(model.value.firewallStatus).then(() => {
-    window.$message.success('设置成功')
+  useRequest(firewall.updateStatus(model.value.firewallStatus)).onSuccess(() => {
+    window.$message.success($gettext('Settings saved successfully'))
   })
 }
 
 const handleSsh = () => {
-  safe.setSsh(model.value.sshStatus, model.value.sshPort).then(() => {
-    window.$message.success('设置成功')
+  useRequest(safe.updateSsh(model.value.sshStatus, model.value.sshPort)).onSuccess(() => {
+    window.$message.success($gettext('Settings saved successfully'))
   })
 }
 
 const handlePingStatus = () => {
-  safe.setPingStatus(model.value.pingStatus).then(() => {
-    window.$message.success('设置成功')
+  useRequest(safe.updatePingStatus(model.value.pingStatus)).onSuccess(() => {
+    window.$message.success($gettext('Settings saved successfully'))
   })
 }
-
-onMounted(() => {
-  fetchSetting()
-})
 </script>
 
 <template>
-  <n-card flex-1 rounded-10>
-    <n-form :model="model" label-placement="left" label-width="auto">
-      <n-form-item path="firewall" label="系统防火墙">
-        <n-switch v-model:value="model.firewallStatus" @update:value="handleFirewallStatus" />
-      </n-form-item>
-      <n-form-item path="ssh" label="SSH 开关">
-        <n-switch v-model:value="model.sshStatus" @update:value="handleSsh" />
-      </n-form-item>
-      <n-form-item path="ping" label="允许 Ping">
-        <n-switch v-model:value="model.pingStatus" @update:value="handlePingStatus" />
-      </n-form-item>
-      <n-form-item path="sshPort" label="SSH 端口">
-        <n-input-number v-model:value="model.sshPort" @blur="handleSsh" />
-      </n-form-item>
-    </n-form>
-  </n-card>
+  <n-form :model="model" label-placement="left" label-width="auto">
+    <n-form-item path="firewall" :label="$gettext('System Firewall')">
+      <n-switch v-model:value="model.firewallStatus" @update:value="handleFirewallStatus" />
+    </n-form-item>
+    <n-form-item path="ssh" :label="$gettext('SSH Switch')">
+      <n-switch v-model:value="model.sshStatus" @update:value="handleSsh" />
+    </n-form-item>
+    <n-form-item path="ping" :label="$gettext('Allow Ping')">
+      <n-switch v-model:value="model.pingStatus" @update:value="handlePingStatus" />
+    </n-form-item>
+    <n-form-item path="sshPort" :label="$gettext('SSH Port')">
+      <n-input-number v-model:value="model.sshPort" @blur="handleSsh" />
+    </n-form-item>
+  </n-form>
 </template>
 
 <style scoped lang="scss"></style>

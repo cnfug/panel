@@ -4,11 +4,11 @@ defineOptions({
 })
 
 import { NButton, NDataTable, NInput, NPopconfirm } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
 import s3fs from '@/api/apps/s3fs'
-import { renderIcon } from '@/utils'
-import type { S3fs } from '@/views/apps/s3fs/types'
 
+const { $gettext } = useGettext()
 const addMountModal = ref(false)
 
 const addMountModel = ref({
@@ -19,30 +19,19 @@ const addMountModel = ref({
   path: ''
 })
 
-const pagination = reactive({
-  page: 1,
-  pageCount: 1,
-  pageSize: 20,
-  itemCount: 0,
-  showQuickJumper: true,
-  showSizePicker: true,
-  pageSizes: [20, 50, 100, 200]
-})
-
 const columns: any = [
   {
-    title: '挂载路径',
+    title: $gettext('Mount Path'),
     key: 'path',
-    minWidth: 250,
+    minWidth: 150,
     resizable: true,
     ellipsis: { tooltip: true }
   },
-  { title: 'Bucket', key: 'bucket', resizable: true, minWidth: 250, ellipsis: { tooltip: true } },
+  { title: 'Bucket', key: 'bucket', resizable: true, minWidth: 150, ellipsis: { tooltip: true } },
   {
-    title: '操作',
+    title: $gettext('Actions'),
     key: 'actions',
-    width: 240,
-    align: 'center',
+    width: 150,
     hideInExcel: true,
     render(row: any) {
       return [
@@ -53,7 +42,9 @@ const columns: any = [
           },
           {
             default: () => {
-              return '确定删除挂载' + row.path + '吗？'
+              return $gettext('Are you sure you want to delete mount %{ path }?', {
+                path: row.path
+              })
             },
             trigger: () => {
               return h(
@@ -63,8 +54,7 @@ const columns: any = [
                   type: 'error'
                 },
                 {
-                  default: () => '卸载',
-                  icon: renderIcon('material-symbols:delete-outline', { size: 14 })
+                  default: () => $gettext('Unmount')
                 }
               )
             }
@@ -75,76 +65,80 @@ const columns: any = [
   }
 ]
 
-const mounts = ref<S3fs[]>([] as S3fs[])
+const { loading, data, page, total, pageSize, pageCount, refresh } = usePagination(
+  (page, pageSize) => s3fs.mounts(page, pageSize),
+  {
+    initialData: { total: 0, list: [] },
+    initialPageSize: 20,
+    total: (res: any) => res.total,
+    data: (res: any) => res.items
+  }
+)
 
-const getMounts = async (page: number, limit: number) => {
-  const { data } = await s3fs.list(page, limit)
-  return data
-}
-
-const onPageChange = (page: number) => {
-  pagination.page = page
-  getMounts(page, pagination.pageSize).then((res) => {
-    mounts.value = res.items
-    pagination.itemCount = res.total
-    pagination.pageCount = res.total / pagination.pageSize + 1
+const handleAddMount = () => {
+  useRequest(s3fs.add(addMountModel.value)).onSuccess(() => {
+    refresh()
+    addMountModal.value = false
+    window.$message.success($gettext('Added successfully'))
   })
 }
 
-const onPageSizeChange = (pageSize: number) => {
-  pagination.pageSize = pageSize
-  onPageChange(1)
-}
-
-const handleAddMount = async () => {
-  await s3fs.add(addMountModel.value)
-  window.$message.success('添加成功')
-  onPageChange(1)
-  addMountModal.value = false
-}
-
-const handleDeleteMount = async (id: number) => {
-  await s3fs.delete(id)
-  window.$message.success('删除成功')
-  onPageChange(1)
+const handleDeleteMount = (id: number) => {
+  useRequest(s3fs.delete(id)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Deleted successfully'))
+  })
 }
 
 onMounted(() => {
-  onPageChange(1)
+  refresh()
 })
 </script>
 
 <template>
   <common-page show-footer>
-    <template #action>
-      <n-button class="ml-16" type="primary" @click="addMountModal = true">
-        <TheIcon :size="18" icon="material-symbols:add" />
-        添加挂载
-      </n-button>
-    </template>
-    <n-card title="挂载列表" :segmented="true" rounded-10>
+    <n-flex vertical>
+      <n-flex>
+        <n-button type="primary" @click="addMountModal = true">
+          {{ $gettext('Add Mount') }}
+        </n-button>
+      </n-flex>
       <n-data-table
         striped
         remote
-        :scroll-x="1000"
-        :loading="false"
+        :scroll-x="450"
+        :loading="loading"
         :columns="columns"
-        :data="mounts"
+        :data="data"
         :row-key="(row: any) => row.id"
-        @update:page="onPageChange"
-        @update:page-size="onPageSizeChange"
+        v-model:page="page"
+        v-model:pageSize="pageSize"
+        :pagination="{
+          page: page,
+          pageCount: pageCount,
+          pageSize: pageSize,
+          itemCount: total,
+          showQuickJumper: true,
+          showSizePicker: true,
+          pageSizes: [20, 50, 100, 200]
+        }"
       />
-    </n-card>
+    </n-flex>
   </common-page>
-  <n-modal v-model:show="addMountModal" title="添加挂载">
-    <n-card closable @close="() => (addMountModal = false)" title="添加挂载" style="width: 60vw">
+  <n-modal v-model:show="addMountModal" :title="$gettext('Add Mount')">
+    <n-card
+      closable
+      @close="() => (addMountModal = false)"
+      :title="$gettext('Add Mount')"
+      style="width: 60vw"
+    >
       <n-form :model="addMountModel">
-        <n-form-item path="bucket" label="Bucket（腾讯云COS为: xxxx-用户ID）">
+        <n-form-item path="bucket" label="Bucket">
           <n-input
             v-model:value="addMountModel.bucket"
             type="text"
             @keydown.enter.prevent
-            placeholder="输入Bucket名字"
+            :placeholder="$gettext('Enter Bucket name (COS format: xxxx-ID)')"
           />
         </n-form-item>
         <n-form-item path="ak" label="AK">
@@ -152,7 +146,7 @@ onMounted(() => {
             v-model:value="addMountModel.ak"
             type="text"
             @keydown.enter.prevent
-            placeholder="输入AK密钥"
+            :placeholder="$gettext('Enter AK key')"
           />
         </n-form-item>
         <n-form-item path="sk" label="SK">
@@ -160,27 +154,31 @@ onMounted(() => {
             v-model:value="addMountModel.sk"
             type="text"
             @keydown.enter.prevent
-            placeholder="输入SK密钥"
+            :placeholder="$gettext('Enter SK key')"
           />
         </n-form-item>
-        <n-form-item path="url" label="地域节点">
+        <n-form-item path="url" :label="$gettext('Region Endpoint')">
           <n-input
             v-model:value="addMountModel.url"
             type="text"
             @keydown.enter.prevent
-            placeholder="输入地域节点的 URL"
+            :placeholder="
+              $gettext(
+                'Enter complete URL of region endpoint (e.g., https://oss-cn-beijing.aliyuncs.com)'
+              )
+            "
           />
         </n-form-item>
-        <n-form-item path="path" label="挂载目录">
+        <n-form-item path="path" :label="$gettext('Mount Directory')">
           <n-input
             v-model:value="addMountModel.path"
             type="text"
             @keydown.enter.prevent
-            placeholder="输入挂载目录"
+            :placeholder="$gettext('Enter mount directory (e.g., /oss)')"
           />
         </n-form-item>
       </n-form>
-      <n-button type="info" block @click="handleAddMount">提交</n-button>
+      <n-button type="info" block @click="handleAddMount">{{ $gettext('Submit') }}</n-button>
     </n-card>
   </n-modal>
 </template>

@@ -3,24 +3,23 @@ package service
 import (
 	"net/http"
 
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/internal/data"
-	"github.com/TheTNB/panel/internal/http/request"
-	"github.com/TheTNB/panel/pkg/tools"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/internal/http/request"
+	"github.com/acepanel/panel/pkg/tools"
 )
 
 type SettingService struct {
 	settingRepo biz.SettingRepo
 }
 
-func NewSettingService() *SettingService {
+func NewSettingService(setting biz.SettingRepo) *SettingService {
 	return &SettingService{
-		settingRepo: data.NewSettingRepo(),
+		settingRepo: setting,
 	}
 }
 
 func (s *SettingService) Get(w http.ResponseWriter, r *http.Request) {
-	setting, err := s.settingRepo.GetPanelSetting(r.Context())
+	setting, err := s.settingRepo.GetPanel()
 	if err != nil {
 		Error(w, http.StatusInternalServerError, "%v", err)
 		return
@@ -30,14 +29,14 @@ func (s *SettingService) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *SettingService) Update(w http.ResponseWriter, r *http.Request) {
-	req, err := Bind[request.PanelSetting](r)
+	req, err := Bind[request.SettingPanel](r)
 	if err != nil {
 		Error(w, http.StatusUnprocessableEntity, "%v", err)
 		return
 	}
 
 	restart := false
-	if restart, err = s.settingRepo.UpdatePanelSetting(r.Context(), req); err != nil {
+	if restart, err = s.settingRepo.UpdatePanel(req); err != nil {
 		Error(w, http.StatusInternalServerError, "%v", err)
 		return
 	}
@@ -45,6 +44,24 @@ func (s *SettingService) Update(w http.ResponseWriter, r *http.Request) {
 	if restart {
 		tools.RestartPanel()
 	}
+
+	Success(w, nil)
+}
+
+// UpdateCert 用于自动化工具更新证书
+func (s *SettingService) UpdateCert(w http.ResponseWriter, r *http.Request) {
+	req, err := Bind[request.SettingCert](r)
+	if err != nil {
+		Error(w, http.StatusUnprocessableEntity, "%v", err)
+		return
+	}
+
+	if err = s.settingRepo.UpdateCert(req); err != nil {
+		Error(w, http.StatusInternalServerError, "%v", err)
+		return
+	}
+
+	tools.RestartPanel()
 
 	Success(w, nil)
 }

@@ -4,33 +4,35 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strconv"
-	"time"
 
-	"github.com/go-rat/utils/str"
+	"github.com/leonelquinteros/gotext"
+	"github.com/libtnb/utils/str"
+	"gorm.io/gorm"
 
-	"github.com/TheTNB/panel/internal/app"
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/internal/http/request"
-	"github.com/TheTNB/panel/pkg/io"
-	"github.com/TheTNB/panel/pkg/os"
-	"github.com/TheTNB/panel/pkg/shell"
-	"github.com/TheTNB/panel/pkg/systemctl"
+	"github.com/acepanel/panel/internal/app"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/internal/http/request"
+	"github.com/acepanel/panel/pkg/io"
+	"github.com/acepanel/panel/pkg/os"
+	"github.com/acepanel/panel/pkg/shell"
+	"github.com/acepanel/panel/pkg/systemctl"
 )
 
 type cronRepo struct {
-	settingRepo biz.SettingRepo
+	t  *gotext.Locale
+	db *gorm.DB
 }
 
-func NewCronRepo() biz.CronRepo {
+func NewCronRepo(t *gotext.Locale, db *gorm.DB) biz.CronRepo {
 	return &cronRepo{
-		settingRepo: NewSettingRepo(),
+		t:  t,
+		db: db,
 	}
 }
 
 func (r *cronRepo) Count() (int64, error) {
 	var count int64
-	if err := app.Orm.Model(&biz.Cron{}).Count(&count).Error; err != nil {
+	if err := r.db.Model(&biz.Cron{}).Count(&count).Error; err != nil {
 		return 0, err
 	}
 
@@ -38,15 +40,15 @@ func (r *cronRepo) Count() (int64, error) {
 }
 
 func (r *cronRepo) List(page, limit uint) ([]*biz.Cron, int64, error) {
-	var cron []*biz.Cron
+	cron := make([]*biz.Cron, 0)
 	var total int64
-	err := app.Orm.Model(&biz.Cron{}).Order("id desc").Count(&total).Offset(int((page - 1) * limit)).Limit(int(limit)).Find(&cron).Error
+	err := r.db.Model(&biz.Cron{}).Order("id desc").Count(&total).Offset(int((page - 1) * limit)).Limit(int(limit)).Find(&cron).Error
 	return cron, total, err
 }
 
 func (r *cronRepo) Get(id uint) (*biz.Cron, error) {
 	cron := new(biz.Cron)
-	if err := app.Orm.Where("id = ?", id).First(cron).Error; err != nil {
+	if err := r.db.Where("id = ?", id).First(cron).Error; err != nil {
 		return nil, err
 	}
 
@@ -60,8 +62,6 @@ func (r *cronRepo) Create(req *request.CronCreate) error {
 			script = fmt.Sprintf(`#!/bin/bash
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:$PATH
 
-# 耗子面板 - 网站备份脚本
-
 panel-cli backup website -n '%s' -p '%s'
 panel-cli backup clear -t website -f '%s' -s '%d' -p '%s'
 `, req.Target, req.BackupPath, req.Target, req.Save, req.BackupPath)
@@ -69,8 +69,6 @@ panel-cli backup clear -t website -f '%s' -s '%d' -p '%s'
 		if req.BackupType == "mysql" || req.BackupType == "postgres" {
 			script = fmt.Sprintf(`#!/bin/bash
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:$PATH
-
-# 耗子面板 - 数据库备份脚本
 
 panel-cli backup database -t '%s' -n '%s' -p '%s'
 panel-cli backup clear -t '%s' -f '%s' -s '%d' -p '%s'
@@ -81,11 +79,8 @@ panel-cli backup clear -t '%s' -f '%s' -s '%d' -p '%s'
 		script = fmt.Sprintf(`#!/bin/bash
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:$PATH
 
-# 耗子面板 - 日志切割脚本
-
-# 执行切割
-panel-cli cutoff website -n %s -p %s
-panel-cli cutoff clear -t website -f %s -s %d -p %s
+panel-cli cutoff website -n '%s' -p '%s'
+panel-cli cutoff clear -t website -f '%s' -s '%d' -p '%s'
 `, req.Target, req.BackupPath, req.Target, req.Save, req.BackupPath)
 	}
 	if req.Type == "shell" {
@@ -94,19 +89,12 @@ panel-cli cutoff clear -t website -f %s -s %d -p %s
 
 	shellDir := fmt.Sprintf("%s/server/cron/", app.Root)
 	shellLogDir := fmt.Sprintf("%s/server/cron/logs/", app.Root)
-	if !io.Exists(shellDir) {
-		return errors.New("计划任务目录不存在")
-	}
-	if !io.Exists(shellLogDir) {
-		return errors.New("计划任务日志目录不存在")
-	}
-	shellFile := strconv.Itoa(int(time.Now().Unix())) + str.Random(16)
+	shellFile := str.Random(16)
 	if err := io.Write(filepath.Join(shellDir, shellFile+".sh"), script, 0700); err != nil {
 		return errors.New(err.Error())
 	}
-	if out, err := shell.Execf("dos2unix %s%s.sh", shellDir, shellFile); err != nil {
-		return errors.New(out)
-	}
+	// 编码转换
+	_, _ = shell.Execf("dos2unix %s%s.sh", shellDir, shellFile)
 
 	cron := new(biz.Cron)
 	cron.Name = req.Name
@@ -116,7 +104,7 @@ panel-cli cutoff clear -t website -f %s -s %d -p %s
 	cron.Shell = shellDir + shellFile + ".sh"
 	cron.Log = shellLogDir + shellFile + ".log"
 
-	if err := app.Orm.Create(cron).Error; err != nil {
+	if err := r.db.Create(cron).Error; err != nil {
 		return err
 	}
 	if err := r.addToSystem(cron); err != nil {
@@ -132,13 +120,9 @@ func (r *cronRepo) Update(req *request.CronUpdate) error {
 		return err
 	}
 
-	if !cron.Status {
-		return errors.New("计划任务已禁用")
-	}
-
 	cron.Time = req.Time
 	cron.Name = req.Name
-	if err = app.Orm.Save(cron).Error; err != nil {
+	if err = r.db.Save(cron).Error; err != nil {
 		return err
 	}
 
@@ -174,7 +158,7 @@ func (r *cronRepo) Delete(id uint) error {
 		return err
 	}
 
-	return app.Orm.Delete(cron).Error
+	return r.db.Delete(cron).Error
 }
 
 func (r *cronRepo) Status(id uint, status bool) error {
@@ -187,12 +171,14 @@ func (r *cronRepo) Status(id uint, status bool) error {
 		return err
 	}
 	if status {
-		return r.addToSystem(cron)
+		if err = r.addToSystem(cron); err != nil {
+			return err
+		}
 	}
 
 	cron.Status = status
 
-	return app.Orm.Save(cron).Error
+	return r.db.Save(cron).Error
 }
 
 // addToSystem 添加到系统
@@ -223,5 +209,5 @@ func (r *cronRepo) restartCron() error {
 		return systemctl.Restart("cron")
 	}
 
-	return errors.New("不支持的系统")
+	return errors.New(r.t.Get("unsupported system"))
 }

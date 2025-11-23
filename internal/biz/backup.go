@@ -1,6 +1,6 @@
 package biz
 
-import "github.com/TheTNB/panel/pkg/types"
+import "github.com/acepanel/panel/pkg/types"
 
 type BackupType string
 
@@ -21,4 +21,6 @@ type BackupRepo interface {
 	ClearExpired(path, prefix string, save int) error
 	CutoffLog(path, target string) error
 	GetPath(typ BackupType) (string, error)
+	FixPanel() error
+	UpdatePanel(version, url, checksum string) error
 }

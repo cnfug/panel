@@ -18,10 +18,9 @@ import (
 	"github.com/shirou/gopsutil/load"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/shirou/gopsutil/net"
-	"go.uber.org/zap"
 
-	"github.com/TheTNB/panel/pkg/shell"
-	"github.com/TheTNB/panel/pkg/types"
+	"github.com/acepanel/panel/pkg/shell"
+	"github.com/acepanel/panel/pkg/types"
 )
 
 // CurrentInfo 获取监控数据
@@ -90,9 +89,8 @@ func RestartPanel() {
 
 // IsChina 是否中国大陆
 func IsChina() bool {
-	logger := zap.NewNop().Sugar()
 	client := resty.New()
-	client.SetLogger(logger)
+	client.SetLogger(NoopLogger{})
 	client.SetDisableWarn(true)
 	client.SetTimeout(3 * time.Second)
 	client.SetRetryCount(3)
@@ -111,9 +109,8 @@ func IsChina() bool {
 
 // GetPublicIPv4 获取公网IPv4
 func GetPublicIPv4() (string, error) {
-	logger := zap.NewNop().Sugar()
 	client := resty.New()
-	client.SetLogger(logger)
+	client.SetLogger(NoopLogger{})
 	client.SetDisableWarn(true)
 	client.SetTimeout(3 * time.Second)
 	client.SetRetryCount(3)
@@ -133,9 +130,8 @@ func GetPublicIPv4() (string, error) {
 
 // GetPublicIPv6 获取公网IPv6
 func GetPublicIPv6() (string, error) {
-	logger := zap.NewNop().Sugar()
 	client := resty.New()
-	client.SetLogger(logger)
+	client.SetLogger(NoopLogger{})
 	client.SetDisableWarn(true)
 	client.SetTimeout(3 * time.Second)
 	client.SetRetryCount(3)
@@ -159,7 +155,9 @@ func GetLocalIPv4() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer conn.Close()
+	defer func(conn stdnet.Conn) {
+		_ = conn.Close()
+	}(conn)
 
 	local := conn.LocalAddr().(*stdnet.UDPAddr)
 	return local.IP.String(), nil
@@ -171,7 +169,9 @@ func GetLocalIPv6() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer conn.Close()
+	defer func(conn stdnet.Conn) {
+		_ = conn.Close()
+	}(conn)
 
 	local := conn.LocalAddr().(*stdnet.UDPAddr)
 	return local.IP.String(), nil

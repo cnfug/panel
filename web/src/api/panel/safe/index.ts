@@ -1,16 +1,8 @@
-import type { AxiosResponse } from 'axios'
-
-import { request } from '@/utils'
+import { http } from '@/utils'
 
 export default {
-  // 获取SSH
-  ssh: (): Promise<AxiosResponse<any>> => request.get('/safe/ssh'),
-  // 设置SSH
-  setSsh: (status: boolean, port: number): Promise<AxiosResponse<any>> =>
-    request.post('/safe/ssh', { status, port }),
-  // 获取Ping状态
-  pingStatus: (): Promise<AxiosResponse<any>> => request.get('/safe/ping'),
-  // 设置Ping状态
-  setPingStatus: (status: boolean): Promise<AxiosResponse<any>> =>
-    request.post('/safe/ping', { status })
+  ssh: (): any => http.Get('/safe/ssh'),
+  updateSsh: (status: boolean, port: number): any => http.Post('/safe/ssh', { status, port }),
+  pingStatus: (): any => http.Get('/safe/ping'),
+  updatePingStatus: (status: boolean): any => http.Post('/safe/ping', { status })
 }

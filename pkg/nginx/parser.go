@@ -2,6 +2,7 @@ package nginx
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -18,7 +19,7 @@ type Parser struct {
 
 func NewParser(str ...string) (*Parser, error) {
 	if len(str) == 0 {
-		str = append(str, defaultConf)
+		str = append(str, DefaultConf)
 	}
 	p := parser.NewStringParser(str[0], parser.WithSkipIncludeParsingErr(), parser.WithSkipValidDirectivesErr())
 	c, err := p.Parse()
@@ -49,7 +50,7 @@ func (p *Parser) Find(key string) ([]config.IDirective, error) {
 		key = parts[i]
 		directives := block.FindDirectives(key)
 		if len(directives) == 0 {
-			return nil, errors.New("given key not found")
+			return nil, fmt.Errorf("given key %s not found", key)
 		}
 		if len(directives) > 1 {
 			return nil, errors.New("multiple directives found")
@@ -78,7 +79,7 @@ func (p *Parser) FindOne(key string) (config.IDirective, error) {
 		return nil, err
 	}
 	if len(directives) == 0 {
-		return nil, errors.New("given key not found")
+		return nil, fmt.Errorf("given key %s not found", key)
 	}
 
 	return directives[0], nil
@@ -97,10 +98,10 @@ func (p *Parser) Clear(key string) error {
 	for i := 0; i < len(parts); i++ {
 		directives := block.FindDirectives(parts[i])
 		if len(directives) == 0 {
-			return errors.New("given key not found")
+			return fmt.Errorf("given key %s not found", parts[i])
 		}
 		if len(directives) > 1 {
-			return errors.New("multiple directives found")
+			return fmt.Errorf("multiple directives found for %s", parts[i])
 		}
 		block, ok = directives[0].GetBlock().(*config.Block)
 		if !ok {
@@ -125,24 +126,26 @@ func (p *Parser) Set(key string, directives []*config.Directive) error {
 	parts := strings.Split(key, ".")
 
 	var block *config.Block
+	var blockDirective config.IDirective
 	var ok bool
 	block = p.c.Block
 	for i := 0; i < len(parts); i++ {
 		sub := block.FindDirectives(parts[i])
 		if len(sub) == 0 {
-			return errors.New("given key not found")
+			return fmt.Errorf("given key %s not found", parts[i])
 		}
 		if len(sub) > 1 {
-			return errors.New("multiple directives found")
+			return fmt.Errorf("multiple directives found for %s", parts[i])
 		}
 		block, ok = sub[0].GetBlock().(*config.Block)
 		if !ok {
 			return errors.New("block is not *config.Block")
 		}
+		blockDirective = sub[0]
 	}
 
 	for _, directive := range directives {
-		directive.SetParent(block)
+		directive.SetParent(blockDirective)
 		block.Directives = append(block.Directives, directive)
 	}
 
@@ -163,7 +166,7 @@ func (p *Parser) sortDirectives(directives []config.IDirective, orderIndex map[s
 		if orderIndex[a.GetName()] != orderIndex[b.GetName()] {
 			return orderIndex[a.GetName()] - orderIndex[b.GetName()]
 		}
-		return slices.Compare(a.GetParameters(), b.GetParameters())
+		return slices.Compare(p.parameters2Slices(a.GetParameters()), p.parameters2Slices(b.GetParameters()))
 	})
 
 	for _, directive := range directives {
@@ -171,4 +174,20 @@ func (p *Parser) sortDirectives(directives []config.IDirective, orderIndex map[s
 			p.sortDirectives(block.Directives, orderIndex)
 		}
 	}
+}
+
+func (p *Parser) slices2Parameters(slices []string) []config.Parameter {
+	var parameters []config.Parameter
+	for _, slice := range slices {
+		parameters = append(parameters, config.Parameter{Value: slice})
+	}
+	return parameters
+}
+
+func (p *Parser) parameters2Slices(parameters []config.Parameter) []string {
+	var s []string
+	for _, parameter := range parameters {
+		s = append(s, parameter.Value)
+	}
+	return s
 }

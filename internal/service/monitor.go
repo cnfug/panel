@@ -5,10 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/internal/data"
-	"github.com/TheTNB/panel/internal/http/request"
-	"github.com/TheTNB/panel/pkg/types"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/internal/http/request"
+	"github.com/acepanel/panel/pkg/types"
 )
 
 type MonitorService struct {
@@ -16,10 +15,10 @@ type MonitorService struct {
 	monitorRepo biz.MonitorRepo
 }
 
-func NewMonitorService() *MonitorService {
+func NewMonitorService(setting biz.SettingRepo, monitor biz.MonitorRepo) *MonitorService {
 	return &MonitorService{
-		settingRepo: data.NewSettingRepo(),
-		monitorRepo: data.NewMonitorRepo(),
+		settingRepo: setting,
+		monitorRepo: monitor,
 	}
 }
 
@@ -67,6 +66,10 @@ func (s *MonitorService) List(w http.ResponseWriter, r *http.Request) {
 	monitors, err := s.monitorRepo.List(time.UnixMilli(req.Start), time.UnixMilli(req.End))
 	if err != nil {
 		Error(w, http.StatusInternalServerError, "%v", err)
+		return
+	}
+	if len(monitors) == 0 {
+		Success(w, types.MonitorData{})
 		return
 	}
 

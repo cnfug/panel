@@ -3,44 +3,55 @@ package data
 import (
 	"context"
 	"errors"
-	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/leonelquinteros/gotext"
+	"gorm.io/gorm"
 
-	"github.com/TheTNB/panel/internal/app"
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/internal/http/request"
-	"github.com/TheTNB/panel/pkg/acme"
-	"github.com/TheTNB/panel/pkg/cert"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/internal/http/request"
+	"github.com/acepanel/panel/pkg/acme"
+	"github.com/acepanel/panel/pkg/cert"
 )
 
-type certAccountRepo struct{}
+type certAccountRepo struct {
+	t    *gotext.Locale
+	db   *gorm.DB
+	log  *slog.Logger
+	user biz.UserRepo
+}
 
-func NewCertAccountRepo() biz.CertAccountRepo {
-	return &certAccountRepo{}
+func NewCertAccountRepo(t *gotext.Locale, db *gorm.DB, user biz.UserRepo, log *slog.Logger) biz.CertAccountRepo {
+	return &certAccountRepo{
+		t:    t,
+		db:   db,
+		log:  log,
+		user: user,
+	}
 }
 
 func (r certAccountRepo) List(page, limit uint) ([]*biz.CertAccount, int64, error) {
-	var accounts []*biz.CertAccount
+	accounts := make([]*biz.CertAccount, 0)
 	var total int64
-	err := app.Orm.Model(&biz.CertAccount{}).Order("id desc").Count(&total).Offset(int((page - 1) * limit)).Limit(int(limit)).Find(&accounts).Error
+	err := r.db.Model(&biz.CertAccount{}).Order("id desc").Count(&total).Offset(int((page - 1) * limit)).Limit(int(limit)).Find(&accounts).Error
 	return accounts, total, err
 }
 
 func (r certAccountRepo) GetDefault(userID uint) (*biz.CertAccount, error) {
-	user, err := NewUserRepo().Get(userID)
+	user, err := r.user.Get(userID)
 	if err != nil {
 		return nil, err
 	}
 
 	account := new(biz.CertAccount)
-	if err = app.Orm.Model(&biz.CertAccount{}).Where("ca = ?", "googlecn").Where("email = ?", user.Email).First(account).Error; err == nil {
+	if err = r.db.Model(&biz.CertAccount{}).Where("ca = ?", "letsencrypt").Where("email = ?", user.Email).First(account).Error; err == nil {
 		return account, nil
 	}
 
 	req := &request.CertAccountCreate{
-		CA:      "googlecn",
+		CA:      "letsencrypt",
 		Email:   user.Email,
 		KeyType: string(acme.KeyEC256),
 	}
@@ -50,7 +61,7 @@ func (r certAccountRepo) GetDefault(userID uint) (*biz.CertAccount, error) {
 
 func (r certAccountRepo) Get(id uint) (*biz.CertAccount, error) {
 	account := new(biz.CertAccount)
-	err := app.Orm.Model(&biz.CertAccount{}).Where("id = ?", id).First(account).Error
+	err := r.db.Model(&biz.CertAccount{}).Where("id = ?", id).First(account).Error
 	return account, err
 }
 
@@ -72,13 +83,13 @@ func (r certAccountRepo) Create(req *request.CertAccountCreate) (*biz.CertAccoun
 		}
 		account.Kid = eab.KeyID
 		account.HmacEncoded = eab.MACKey
-		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CAGoogleCN, eab, acme.KeyType(account.KeyType))
+		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CAGoogleCN, eab, acme.KeyType(account.KeyType), r.log)
 	case "google":
-		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CAGoogle, &acme.EAB{KeyID: account.Kid, MACKey: account.HmacEncoded}, acme.KeyType(account.KeyType))
+		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CAGoogle, &acme.EAB{KeyID: account.Kid, MACKey: account.HmacEncoded}, acme.KeyType(account.KeyType), r.log)
 	case "letsencrypt":
-		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CALetsEncrypt, nil, acme.KeyType(account.KeyType))
+		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CALetsEncrypt, nil, acme.KeyType(account.KeyType), r.log)
 	case "buypass":
-		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CABuypass, nil, acme.KeyType(account.KeyType))
+		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CABuypass, nil, acme.KeyType(account.KeyType), r.log)
 	case "zerossl":
 		eab, eabErr := r.getZeroSSLEAB(account.Email)
 		if eabErr != nil {
@@ -86,24 +97,24 @@ func (r certAccountRepo) Create(req *request.CertAccountCreate) (*biz.CertAccoun
 		}
 		account.Kid = eab.KeyID
 		account.HmacEncoded = eab.MACKey
-		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CAZeroSSL, eab, acme.KeyType(account.KeyType))
+		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CAZeroSSL, eab, acme.KeyType(account.KeyType), r.log)
 	case "sslcom":
-		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CASSLcom, &acme.EAB{KeyID: account.Kid, MACKey: account.HmacEncoded}, acme.KeyType(account.KeyType))
+		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CASSLcom, &acme.EAB{KeyID: account.Kid, MACKey: account.HmacEncoded}, acme.KeyType(account.KeyType), r.log)
 	default:
-		return nil, errors.New("unsupported CA")
+		return nil, errors.New(r.t.Get("unsupported CA"))
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to register account: %v", err)
+		return nil, errors.New(r.t.Get("failed to register account: %v", err))
 	}
 
 	privateKey, err := cert.EncodeKey(client.Account.PrivateKey)
 	if err != nil {
-		return nil, errors.New("failed to get private key")
+		return nil, errors.New(r.t.Get("failed to get private key"))
 	}
 	account.PrivateKey = string(privateKey)
 
-	if err = app.Orm.Create(account).Error; err != nil {
+	if err = r.db.Create(account).Error; err != nil {
 		return nil, err
 	}
 
@@ -131,13 +142,13 @@ func (r certAccountRepo) Update(req *request.CertAccountUpdate) error {
 		}
 		account.Kid = eab.KeyID
 		account.HmacEncoded = eab.MACKey
-		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CAGoogleCN, eab, acme.KeyType(account.KeyType))
+		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CAGoogleCN, eab, acme.KeyType(account.KeyType), r.log)
 	case "google":
-		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CAGoogle, &acme.EAB{KeyID: account.Kid, MACKey: account.HmacEncoded}, acme.KeyType(account.KeyType))
+		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CAGoogle, &acme.EAB{KeyID: account.Kid, MACKey: account.HmacEncoded}, acme.KeyType(account.KeyType), r.log)
 	case "letsencrypt":
-		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CALetsEncrypt, nil, acme.KeyType(account.KeyType))
+		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CALetsEncrypt, nil, acme.KeyType(account.KeyType), r.log)
 	case "buypass":
-		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CABuypass, nil, acme.KeyType(account.KeyType))
+		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CABuypass, nil, acme.KeyType(account.KeyType), r.log)
 	case "zerossl":
 		eab, eabErr := r.getZeroSSLEAB(account.Email)
 		if eabErr != nil {
@@ -145,35 +156,35 @@ func (r certAccountRepo) Update(req *request.CertAccountUpdate) error {
 		}
 		account.Kid = eab.KeyID
 		account.HmacEncoded = eab.MACKey
-		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CAZeroSSL, eab, acme.KeyType(account.KeyType))
+		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CAZeroSSL, eab, acme.KeyType(account.KeyType), r.log)
 	case "sslcom":
-		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CASSLcom, &acme.EAB{KeyID: account.Kid, MACKey: account.HmacEncoded}, acme.KeyType(account.KeyType))
+		client, err = acme.NewRegisterAccount(context.Background(), account.Email, acme.CASSLcom, &acme.EAB{KeyID: account.Kid, MACKey: account.HmacEncoded}, acme.KeyType(account.KeyType), r.log)
 	default:
-		return errors.New("unsupported CA")
+		return errors.New(r.t.Get("unsupported CA"))
 	}
 
 	if err != nil {
-		return errors.New("failed to register account")
+		return errors.New(r.t.Get("failed to register account: %v", err))
 	}
 
 	privateKey, err := cert.EncodeKey(client.Account.PrivateKey)
 	if err != nil {
-		return errors.New("failed to get private key")
+		return errors.New(r.t.Get("failed to get private key: %v", err))
 	}
 	account.PrivateKey = string(privateKey)
 
-	return app.Orm.Save(account).Error
+	return r.db.Save(account).Error
 }
 
 func (r certAccountRepo) Delete(id uint) error {
-	return app.Orm.Model(&biz.CertAccount{}).Where("id = ?", id).Delete(&biz.CertAccount{}).Error
+	return r.db.Model(&biz.CertAccount{}).Where("id = ?", id).Delete(&biz.CertAccount{}).Error
 }
 
 // getGoogleEAB 获取 Google EAB
 func (r certAccountRepo) getGoogleEAB() (*acme.EAB, error) {
 	type data struct {
-		Message string `json:"message"`
-		Data    struct {
+		Msg  string `json:"msg"`
+		Data struct {
 			KeyId  string `json:"key_id"`
 			MacKey string `json:"mac_key"`
 		} `json:"data"`
@@ -184,11 +195,11 @@ func (r certAccountRepo) getGoogleEAB() (*acme.EAB, error) {
 
 	resp, err := client.R().SetResult(&data{}).Get("https://gts.rat.dev/eab")
 	if err != nil || !resp.IsSuccess() {
-		return &acme.EAB{}, fmt.Errorf("failed to get Google EAB: %v", err)
+		return &acme.EAB{}, errors.New(r.t.Get("failed to get Google EAB: %v", err))
 	}
 	eab := resp.Result().(*data)
-	if eab.Message != "success" {
-		return &acme.EAB{}, fmt.Errorf("failed to get Google EAB: %s", eab.Message)
+	if eab.Msg != "success" {
+		return &acme.EAB{}, errors.New(r.t.Get("failed to get Google EAB: %s", eab.Msg))
 	}
 
 	return &acme.EAB{KeyID: eab.Data.KeyId, MACKey: eab.Data.MacKey}, nil
@@ -209,11 +220,11 @@ func (r certAccountRepo) getZeroSSLEAB(email string) (*acme.EAB, error) {
 		"email": email,
 	}).SetResult(&data{}).Post("https://api.zerossl.com/acme/eab-credentials-email")
 	if err != nil || !resp.IsSuccess() {
-		return &acme.EAB{}, fmt.Errorf("failed to get ZeroSSL EAB: %v", err)
+		return &acme.EAB{}, errors.New(r.t.Get("failed to get ZeroSSL EAB: %v", err))
 	}
 	eab := resp.Result().(*data)
 	if !eab.Success {
-		return &acme.EAB{}, fmt.Errorf("failed to get ZeroSSL EAB")
+		return &acme.EAB{}, errors.New(r.t.Get("failed to get ZeroSSL EAB"))
 	}
 
 	return &acme.EAB{KeyID: eab.EabKid, MACKey: eab.EabHmacKey}, nil

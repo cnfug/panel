@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { NButton, NDataTable, NPopconfirm, NTag } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
 import firewall from '@/api/panel/firewall'
-import { renderIcon } from '@/utils'
 import CreateModal from '@/views/firewall/CreateModal.vue'
-import type { FirewallRule } from '@/views/firewall/types'
 
+const { $gettext } = useGettext()
 const createModalShow = ref(false)
 
 const columns: any = [
   { type: 'selection', fixed: 'left' },
   {
-    title: '传输协议',
+    title: $gettext('Transport Protocol'),
     key: 'protocol',
     width: 150,
     resizable: true,
@@ -22,13 +22,13 @@ const columns: any = [
           if (row.protocol !== '') {
             return row.protocol
           }
-          return '无'
+          return $gettext('None')
         }
       })
     }
   },
   {
-    title: '网络协议',
+    title: $gettext('Network Protocol'),
     key: 'family',
     width: 150,
     resizable: true,
@@ -39,13 +39,13 @@ const columns: any = [
           if (row.family !== '') {
             return row.family
           }
-          return '无'
+          return $gettext('None')
         }
       })
     }
   },
   {
-    title: '端口',
+    title: $gettext('Port'),
     key: 'port',
     width: 250,
     resizable: true,
@@ -58,7 +58,7 @@ const columns: any = [
     }
   },
   {
-    title: '状态',
+    title: $gettext('Status'),
     key: 'in_use',
     width: 150,
     render(row: any): any {
@@ -70,16 +70,16 @@ const columns: any = [
         {
           default: () => {
             if (row.in_use) {
-              return '使用中'
+              return $gettext('In Use')
             }
-            return '未使用'
+            return $gettext('Not Used')
           }
         }
       )
     }
   },
   {
-    title: '策略',
+    title: $gettext('Strategy'),
     key: 'strategy',
     width: 150,
     render(row: any): any {
@@ -87,19 +87,27 @@ const columns: any = [
         NTag,
         {
           type:
-            row.strategy === 'accept' ? 'success' : row.strategy === 'drop' ? 'warning' : 'error'
+            row.strategy === 'accept'
+              ? 'success'
+              : row.strategy === 'drop'
+                ? 'warning'
+                : row.strategy === 'reject'
+                  ? 'error'
+                  : 'default'
         },
         {
           default: () => {
             switch (row.strategy) {
               case 'accept':
-                return '接受'
+                return $gettext('Accept')
               case 'drop':
-                return '丢弃'
+                return $gettext('Drop')
               case 'reject':
-                return '拒绝'
+                return $gettext('Reject')
+              case 'mark':
+                return $gettext('Mark')
               default:
-                return '未知'
+                return $gettext('Unknown')
             }
           }
         }
@@ -107,7 +115,7 @@ const columns: any = [
     }
   },
   {
-    title: '方向',
+    title: $gettext('Direction'),
     key: 'direction',
     width: 150,
     render(row: any): any {
@@ -120,11 +128,11 @@ const columns: any = [
           default: () => {
             switch (row.direction) {
               case 'in':
-                return '传入'
+                return $gettext('Inbound')
               case 'out':
-                return '传出'
+                return $gettext('Outbound')
               default:
-                return '未知'
+                return $gettext('Unknown')
             }
           }
         }
@@ -132,14 +140,14 @@ const columns: any = [
     }
   },
   {
-    title: '目标',
+    title: $gettext('Target'),
     key: 'address',
     minWidth: 200,
     render(row: any): any {
       return h(NTag, null, {
         default: () => {
           if (row.address === '') {
-            return '所有'
+            return $gettext('All')
           }
           return row.address
         }
@@ -147,10 +155,9 @@ const columns: any = [
     }
   },
   {
-    title: '操作',
+    title: $gettext('Actions'),
     key: 'actions',
     width: 200,
-    align: 'center',
     hideInExcel: true,
     render(row: any) {
       return [
@@ -161,7 +168,7 @@ const columns: any = [
           },
           {
             default: () => {
-              return '确定要删除吗？'
+              return $gettext('Are you sure you want to delete?')
             },
             trigger: () => {
               return h(
@@ -172,8 +179,7 @@ const columns: any = [
                   style: 'margin-left: 15px;'
                 },
                 {
-                  default: () => '删除',
-                  icon: renderIcon('material-symbols:delete-outline', { size: 14 })
+                  default: () => $gettext('Delete')
                 }
               )
             }
@@ -184,117 +190,86 @@ const columns: any = [
   }
 ]
 
-const data = ref<FirewallRule[]>([] as FirewallRule[])
-
-const pagination = reactive({
-  page: 1,
-  pageCount: 1,
-  pageSize: 20,
-  itemCount: 0,
-  showQuickJumper: true,
-  showSizePicker: true,
-  pageSizes: [20, 50, 100, 200]
-})
+const { loading, data, page, total, pageSize, pageCount, refresh } = usePagination(
+  (page, pageSize) => firewall.rules(page, pageSize),
+  {
+    initialData: { total: 0, list: [] },
+    initialPageSize: 20,
+    total: (res: any) => res.total,
+    data: (res: any) => res.items
+  }
+)
 
 const selectedRowKeys = ref<any>([])
 
 const handleDelete = async (row: any) => {
-  await firewall.deleteRule(row).then(() => {
-    window.$message.success('删除成功')
+  useRequest(firewall.deleteRule(row)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Deleted successfully'))
   })
-  fetchFirewallRules(pagination.page, pagination.pageSize).then((res) => {
-    data.value = res.items
-    pagination.itemCount = res.total
-    pagination.pageCount = res.total / pagination.pageSize + 1
-  })
-}
-
-const fetchFirewallRules = async (page: number, limit: number) => {
-  const { data } = await firewall.rules(page, limit)
-  return data
 }
 
 const batchDelete = async () => {
   if (selectedRowKeys.value.length === 0) {
-    window.$message.info('请选择要删除的规则')
+    window.$message.info($gettext('Please select rules to delete'))
     return
   }
 
-  for (const key of selectedRowKeys.value) {
-    // 解析json
+  const promises = selectedRowKeys.value.map((key: any) => {
     const rule = JSON.parse(key)
-    await firewall.deleteRule(rule).then(() => {
-      let port =
-        rule.port_start == rule.port_end ? rule.port_start : `${rule.port_start}-${rule.port_end}`
-      window.$message.success(`${rule.family} 规则 ${port}/${rule.protocol} 删除成功`)
-    })
-  }
-
-  fetchFirewallRules(pagination.page, pagination.pageSize).then((res) => {
-    data.value = res.items
-    pagination.itemCount = res.total
-    pagination.pageCount = res.total / pagination.pageSize + 1
+    return firewall.deleteRule(rule)
   })
-}
+  await Promise.all(promises)
 
-const onChecked = (rowKeys: any) => {
-  selectedRowKeys.value = rowKeys
-}
-
-const onPageChange = (page: number) => {
-  pagination.page = page
-  fetchFirewallRules(page, pagination.pageSize).then((res) => {
-    data.value = res.items
-    pagination.itemCount = res.total
-    pagination.pageCount = res.total / pagination.pageSize + 1
-  })
-}
-
-const onPageSizeChange = (pageSize: number) => {
-  pagination.pageSize = pageSize
-  onPageChange(1)
+  selectedRowKeys.value = []
+  refresh()
+  window.$message.success($gettext('Deleted successfully'))
 }
 
 watch(createModalShow, () => {
-  onPageChange(1)
+  refresh()
 })
 
 onMounted(() => {
-  onPageChange(1)
+  refresh()
 })
 </script>
 
 <template>
-  <n-flex vertical>
-    <n-card flex-1 rounded-10>
-      <n-flex items-center>
-        <n-button type="primary" @click="createModalShow = true">
-          <TheIcon :size="18" icon="material-symbols:add" />
-          创建规则
-        </n-button>
-        <n-popconfirm @positive-click="batchDelete">
-          <template #trigger>
-            <n-button type="warning">
-              <TheIcon :size="18" icon="material-symbols:delete-outline" />
-              批量删除
-            </n-button>
-          </template>
-          确定要批量删除吗？
-        </n-popconfirm>
-      </n-flex>
-    </n-card>
+  <n-flex vertical :size="20">
+    <n-flex items-center>
+      <n-button type="primary" @click="createModalShow = true">
+        {{ $gettext('Create Rule') }}
+      </n-button>
+      <n-popconfirm @positive-click="batchDelete">
+        <template #trigger>
+          <n-button type="warning">
+            {{ $gettext('Batch Delete') }}
+          </n-button>
+        </template>
+        {{ $gettext('Are you sure you want to batch delete?') }}
+      </n-popconfirm>
+    </n-flex>
     <n-data-table
       striped
       remote
       :scroll-x="1400"
-      :loading="false"
+      :loading="loading"
       :columns="columns"
       :data="data"
       :row-key="(row: any) => JSON.stringify(row)"
-      :pagination="pagination"
-      @update:checked-row-keys="onChecked"
-      @update:page="onPageChange"
-      @update:page-size="onPageSizeChange"
+      v-model:checked-row-keys="selectedRowKeys"
+      v-model:page="page"
+      v-model:pageSize="pageSize"
+      :pagination="{
+        page: page,
+        pageCount: pageCount,
+        pageSize: pageSize,
+        itemCount: total,
+        showQuickJumper: true,
+        showSizePicker: true,
+        pageSizes: [20, 50, 100, 200]
+      }"
     />
   </n-flex>
   <create-modal v-model:show="createModalShow" />

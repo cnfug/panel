@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { NButton, NDataTable, NInput, NPopconfirm, NSpace, NTag } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
 import cert from '@/api/panel/cert'
-import type { DNS } from '@/views/cert/types'
+
+const { $gettext } = useGettext()
 
 const props = defineProps({
   dnsProviders: {
@@ -26,14 +28,14 @@ const updateDNS = ref<any>()
 
 const columns: any = [
   {
-    title: '备注名称',
+    title: $gettext('Note Name'),
     key: 'name',
     minWidth: 200,
     resizable: true,
     ellipsis: { tooltip: true }
   },
   {
-    title: '类型',
+    title: $gettext('Type'),
     key: 'type',
     width: 150,
     resizable: true,
@@ -47,17 +49,11 @@ const columns: any = [
         },
         {
           default: () => {
-            switch (row.type) {
-              case 'aliyun':
-                return '阿里云'
-              case 'tencent':
-                return '腾讯云'
-              case 'huawei':
-                return '华为云'
-              case 'cloudflare':
-                return 'Cloudflare'
-              default:
-                return '未知'
+            const provider = dnsProviders.value.find((provider: any) => provider.value === row.type)
+            if (provider) {
+              return provider.label
+            } else {
+              return $gettext('Unknown')
             }
           }
         }
@@ -65,10 +61,9 @@ const columns: any = [
     }
   },
   {
-    title: '操作',
+    title: $gettext('Actions'),
     key: 'actions',
     width: 200,
-    align: 'center',
     hideInExcel: true,
     render(row: any) {
       return [
@@ -87,21 +82,22 @@ const columns: any = [
             }
           },
           {
-            default: () => '修改'
+            default: () => $gettext('Modify')
           }
         ),
         h(
           NPopconfirm,
           {
             onPositiveClick: async () => {
-              await cert.dnsDelete(row.id)
-              window.$message.success('删除成功')
-              onPageChange(1)
+              useRequest(cert.dnsDelete(row.id)).onSuccess(() => {
+                refresh()
+                window.$message.success($gettext('Deletion successful'))
+              })
             }
           },
           {
             default: () => {
-              return '确定删除 DNS 吗？'
+              return $gettext('Are you sure you want to delete the DNS?')
             },
             trigger: () => {
               return h(
@@ -112,7 +108,7 @@ const columns: any = [
                   style: 'margin-left: 15px;'
                 },
                 {
-                  default: () => '删除'
+                  default: () => $gettext('Delete')
                 }
               )
             }
@@ -123,51 +119,31 @@ const columns: any = [
   }
 ]
 
-const data = ref<DNS[]>([] as DNS[])
+const { loading, data, page, total, pageSize, pageCount, refresh } = usePagination(
+  (page, pageSize) => cert.dns(page, pageSize),
+  {
+    initialData: { total: 0, list: [] },
+    initialPageSize: 20,
+    total: (res: any) => res.total,
+    data: (res: any) => res.items
+  }
+)
 
-const pagination = reactive({
-  page: 1,
-  pageCount: 1,
-  pageSize: 20,
-  itemCount: 0,
-  showQuickJumper: true,
-  showSizePicker: true,
-  pageSizes: [20, 50, 100, 200]
-})
-
-const onPageChange = (page: number) => {
-  pagination.page = page
-  getDnsList(page, pagination.pageSize).then((res) => {
-    data.value = res.items
-    pagination.itemCount = res.total
-    pagination.pageCount = res.total / pagination.pageSize + 1
+const handleUpdateDNS = () => {
+  useRequest(cert.dnsUpdate(updateDNS.value, updateDNSModel.value)).onSuccess(() => {
+    refresh()
+    updateDNSModal.value = false
+    updateDNSModel.value.data.ak = ''
+    updateDNSModel.value.data.sk = ''
+    updateDNSModel.value.name = ''
+    window.$message.success($gettext('Update successful'))
   })
 }
 
-const onPageSizeChange = (pageSize: number) => {
-  pagination.pageSize = pageSize
-  onPageChange(1)
-}
-
-const getDnsList = async (page: number, limit: number) => {
-  const { data } = await cert.dns(page, limit)
-  return data
-}
-
-const handleUpdateDNS = async () => {
-  await cert.dnsUpdate(updateDNS.value, updateDNSModel.value)
-  window.$message.success('更新成功')
-  updateDNSModal.value = false
-  onPageChange(1)
-  updateDNSModel.value.data.ak = ''
-  updateDNSModel.value.data.sk = ''
-  updateDNSModel.value.name = ''
-}
-
-onMounted(async () => {
-  onPageChange(pagination.page)
+onMounted(() => {
+  refresh()
   window.$bus.on('cert:refresh-dns', () => {
-    onPageChange(pagination.page)
+    refresh()
   })
 })
 
@@ -182,19 +158,27 @@ onUnmounted(() => {
       striped
       remote
       :scroll-x="1000"
-      :loading="false"
+      :loading="loading"
       :columns="columns"
       :data="data"
       :row-key="(row: any) => row.id"
-      :pagination="pagination"
-      @update:page="onPageChange"
-      @update:page-size="onPageSizeChange"
+      v-model:page="page"
+      v-model:pageSize="pageSize"
+      :pagination="{
+        page: page,
+        pageCount: pageCount,
+        pageSize: pageSize,
+        itemCount: total,
+        showQuickJumper: true,
+        showSizePicker: true,
+        pageSizes: [20, 50, 100, 200]
+      }"
     />
   </n-space>
   <n-modal
     v-model:show="updateDNSModal"
     preset="card"
-    title="修改 DNS"
+    :title="$gettext('Modify DNS')"
     style="width: 60vw"
     size="huge"
     :bordered="false"
@@ -202,82 +186,128 @@ onUnmounted(() => {
   >
     <n-space vertical>
       <n-form :model="updateDNSModel">
-        <n-form-item path="name" label="备注名称">
+        <n-form-item path="name" :label="$gettext('Note Name')">
           <n-input
             v-model:value="updateDNSModel.name"
             type="text"
-            @keydown.enter.prevent
-            placeholder="输入备注名称"
+            :placeholder="$gettext('Enter note name')"
           />
         </n-form-item>
-        <n-form-item path="type" label="DNS">
+        <n-form-item path="type" :label="$gettext('DNS')">
           <n-select
             v-model:value="updateDNSModel.type"
-            placeholder="选择 DNS"
+            :placeholder="$gettext('Select DNS')"
             clearable
             :options="dnsProviders"
           />
         </n-form-item>
-
         <n-form-item v-if="updateDNSModel.type == 'aliyun'" path="ak" label="Access Key">
           <n-input
             v-model:value="updateDNSModel.data.ak"
             type="text"
-            @keydown.enter.prevent
-            placeholder="输入阿里云 Access Key"
+            :placeholder="$gettext('Enter Aliyun Access Key')"
           />
         </n-form-item>
         <n-form-item v-if="updateDNSModel.type == 'aliyun'" path="sk" label="Secret Key">
           <n-input
             v-model:value="updateDNSModel.data.sk"
             type="text"
-            @keydown.enter.prevent
-            placeholder="输入阿里云 Secret Key"
+            :placeholder="$gettext('Enter Aliyun Secret Key')"
           />
         </n-form-item>
         <n-form-item v-if="updateDNSModel.type == 'tencent'" path="ak" label="SecretId">
           <n-input
             v-model:value="updateDNSModel.data.ak"
             type="text"
-            @keydown.enter.prevent
-            placeholder="输入腾讯云 SecretId"
+            :placeholder="$gettext('Enter Tencent Cloud SecretId')"
           />
         </n-form-item>
         <n-form-item v-if="updateDNSModel.type == 'tencent'" path="sk" label="SecretKey">
           <n-input
             v-model:value="updateDNSModel.data.sk"
             type="text"
-            @keydown.enter.prevent
-            placeholder="输入腾讯云 SecretKey"
+            :placeholder="$gettext('Enter Tencent Cloud SecretKey')"
           />
         </n-form-item>
-
         <n-form-item v-if="updateDNSModel.type == 'huawei'" path="ak" label="AccessKeyId">
           <n-input
             v-model:value="updateDNSModel.data.ak"
             type="text"
-            @keydown.enter.prevent
-            placeholder="输入华为云 AccessKeyId"
+            :placeholder="$gettext('Enter Huawei Cloud AccessKeyId')"
           />
         </n-form-item>
         <n-form-item v-if="updateDNSModel.type == 'huawei'" path="sk" label="SecretAccessKey">
           <n-input
             v-model:value="updateDNSModel.data.sk"
             type="text"
-            @keydown.enter.prevent
-            placeholder="输入华为云 SecretAccessKey"
+            :placeholder="$gettext('Enter Huawei Cloud SecretAccessKey')"
+          />
+        </n-form-item>
+        <n-form-item v-if="updateDNSModel.type == 'westcn'" path="sk" label="Username">
+          <n-input
+            v-model:value="updateDNSModel.data.sk"
+            type="text"
+            :placeholder="$gettext('Enter West.cn Username')"
+          />
+        </n-form-item>
+        <n-form-item v-if="updateDNSModel.type == 'westcn'" path="ak" label="API Password">
+          <n-input
+            v-model:value="updateDNSModel.data.ak"
+            type="text"
+            :placeholder="$gettext('Enter West.cn API Password')"
           />
         </n-form-item>
         <n-form-item v-if="updateDNSModel.type == 'cloudflare'" path="ak" label="API Key">
           <n-input
             v-model:value="updateDNSModel.data.ak"
             type="text"
-            @keydown.enter.prevent
-            placeholder="输入 Cloudflare API Key"
+            :placeholder="$gettext('Enter Cloudflare API Key')"
+          />
+        </n-form-item>
+        <n-form-item v-if="updateDNSModel.type == 'gcore'" path="ak" label="API Key">
+          <n-input
+            v-model:value="updateDNSModel.data.ak"
+            type="text"
+            :placeholder="$gettext('Enter G-Core API Key')"
+          />
+        </n-form-item>
+        <n-form-item v-if="updateDNSModel.type == 'porkbun'" path="ak" label="API Key">
+          <n-input
+            v-model:value="updateDNSModel.data.ak"
+            type="text"
+            :placeholder="$gettext('Enter Porkbun API Key')"
+          />
+        </n-form-item>
+        <n-form-item v-if="updateDNSModel.type == 'porkbun'" path="sk" label="Secret Key">
+          <n-input
+            v-model:value="updateDNSModel.data.sk"
+            type="text"
+            :placeholder="$gettext('Enter Porkbun Secret Key')"
+          />
+        </n-form-item>
+        <n-form-item v-if="updateDNSModel.type == 'namesilo'" path="ak" label="API Token">
+          <n-input
+            v-model:value="updateDNSModel.data.ak"
+            type="text"
+            :placeholder="$gettext('Enter NameSilo API Token')"
+          />
+        </n-form-item>
+        <n-form-item v-if="updateDNSModel.type == 'cloudns'" path="ak" label="Auth ID">
+          <n-input
+            v-model:value="updateDNSModel.data.ak"
+            type="text"
+            :placeholder="$gettext('Enter ClouDNS Auth ID (use Sub Auth ID by adding sub-prefix)')"
+          />
+        </n-form-item>
+        <n-form-item v-if="updateDNSModel.type == 'cloudns'" path="sk" label="Auth Password">
+          <n-input
+            v-model:value="updateDNSModel.data.sk"
+            type="text"
+            :placeholder="$gettext('Enter ClouDNS Auth Password')"
           />
         </n-form-item>
       </n-form>
-      <n-button type="info" block @click="handleUpdateDNS">提交</n-button>
+      <n-button type="info" block @click="handleUpdateDNS">{{ $gettext('Submit') }}</n-button>
     </n-space>
   </n-modal>
 </template>

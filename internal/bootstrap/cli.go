@@ -1,50 +1,43 @@
 package bootstrap
 
 import (
-	"context"
-	"fmt"
-	"os"
 	"strings"
 
+	"github.com/leonelquinteros/gotext"
 	"github.com/urfave/cli/v3"
 
-	"github.com/TheTNB/panel/internal/app"
-	"github.com/TheTNB/panel/internal/route"
+	"github.com/acepanel/panel/internal/app"
+	"github.com/acepanel/panel/internal/route"
 )
 
-func initCli() {
-	app.IsCli = true
+func NewCli(t *gotext.Locale, cmd *route.Cli) *cli.Command {
+	cli.RootCommandHelpTemplate = strings.ReplaceAll(cli.RootCommandHelpTemplate, "NAME", t.Get("NAME"))
+	cli.RootCommandHelpTemplate = strings.ReplaceAll(cli.RootCommandHelpTemplate, "USAGE", t.Get("USAGE"))
+	cli.RootCommandHelpTemplate = strings.ReplaceAll(cli.RootCommandHelpTemplate, "VERSION", t.Get("VERSION"))
+	cli.RootCommandHelpTemplate = strings.ReplaceAll(cli.RootCommandHelpTemplate, "DESCRIPTION", t.Get("DESCRIPTION"))
+	cli.RootCommandHelpTemplate = strings.ReplaceAll(cli.RootCommandHelpTemplate, "AUTHOR", t.Get("AUTHOR"))
+	cli.RootCommandHelpTemplate = strings.ReplaceAll(cli.RootCommandHelpTemplate, "COMMANDS", t.Get("COMMANDS"))
+	cli.RootCommandHelpTemplate = strings.ReplaceAll(cli.RootCommandHelpTemplate, "GLOBAL OPTIONS", t.Get("GLOBAL OPTIONS"))
+	cli.RootCommandHelpTemplate = strings.ReplaceAll(cli.RootCommandHelpTemplate, "COPYRIGHT", t.Get("COPYRIGHT"))
+	cli.CommandHelpTemplate = strings.ReplaceAll(cli.CommandHelpTemplate, "NAME", t.Get("NAME"))
+	cli.CommandHelpTemplate = strings.ReplaceAll(cli.CommandHelpTemplate, "USAGE", t.Get("USAGE"))
+	cli.CommandHelpTemplate = strings.ReplaceAll(cli.CommandHelpTemplate, "CATEGORY", t.Get("CATEGORY"))
+	cli.CommandHelpTemplate = strings.ReplaceAll(cli.CommandHelpTemplate, "DESCRIPTION", t.Get("DESCRIPTION"))
+	cli.CommandHelpTemplate = strings.ReplaceAll(cli.CommandHelpTemplate, "OPTIONS", t.Get("OPTIONS"))
+	cli.SubcommandHelpTemplate = strings.ReplaceAll(cli.SubcommandHelpTemplate, "NAME", t.Get("NAME"))
+	cli.SubcommandHelpTemplate = strings.ReplaceAll(cli.SubcommandHelpTemplate, "USAGE", t.Get("USAGE"))
+	cli.SubcommandHelpTemplate = strings.ReplaceAll(cli.SubcommandHelpTemplate, "DESCRIPTION", t.Get("USAGE"))
+	cli.SubcommandHelpTemplate = strings.ReplaceAll(cli.SubcommandHelpTemplate, "COMMANDS", t.Get("COMMANDS"))
+	cli.SubcommandHelpTemplate = strings.ReplaceAll(cli.SubcommandHelpTemplate, "OPTIONS", t.Get("OPTIONS"))
 
-	cli.RootCommandHelpTemplate = strings.ReplaceAll(cli.RootCommandHelpTemplate, "NAME", "名称")
-	cli.RootCommandHelpTemplate = strings.ReplaceAll(cli.RootCommandHelpTemplate, "USAGE", "用法")
-	cli.RootCommandHelpTemplate = strings.ReplaceAll(cli.RootCommandHelpTemplate, "VERSION", "版本")
-	cli.RootCommandHelpTemplate = strings.ReplaceAll(cli.RootCommandHelpTemplate, "DESCRIPTION", "描述")
-	cli.RootCommandHelpTemplate = strings.ReplaceAll(cli.RootCommandHelpTemplate, "AUTHOR", "作者")
-	cli.RootCommandHelpTemplate = strings.ReplaceAll(cli.RootCommandHelpTemplate, "COMMANDS", "命令")
-	cli.RootCommandHelpTemplate = strings.ReplaceAll(cli.RootCommandHelpTemplate, "GLOBAL OPTIONS", "全局选项")
-	cli.RootCommandHelpTemplate = strings.ReplaceAll(cli.RootCommandHelpTemplate, "COPYRIGHT", "版权")
-	cli.CommandHelpTemplate = strings.ReplaceAll(cli.CommandHelpTemplate, "NAME", "名称")
-	cli.CommandHelpTemplate = strings.ReplaceAll(cli.CommandHelpTemplate, "USAGE", "用法")
-	cli.CommandHelpTemplate = strings.ReplaceAll(cli.CommandHelpTemplate, "CATEGORY", "分类")
-	cli.CommandHelpTemplate = strings.ReplaceAll(cli.CommandHelpTemplate, "DESCRIPTION", "描述")
-	cli.CommandHelpTemplate = strings.ReplaceAll(cli.CommandHelpTemplate, "OPTIONS", "选项")
-	cli.SubcommandHelpTemplate = strings.ReplaceAll(cli.SubcommandHelpTemplate, "NAME", "名称")
-	cli.SubcommandHelpTemplate = strings.ReplaceAll(cli.SubcommandHelpTemplate, "USAGE", "用法")
-	cli.SubcommandHelpTemplate = strings.ReplaceAll(cli.SubcommandHelpTemplate, "DESCRIPTION", "描述")
-	cli.SubcommandHelpTemplate = strings.ReplaceAll(cli.SubcommandHelpTemplate, "COMMANDS", "命令")
-	cli.SubcommandHelpTemplate = strings.ReplaceAll(cli.SubcommandHelpTemplate, "OPTIONS", "选项")
+	cli.RootCommandHelpTemplate += "\n" + t.Get("Website：https://acepanel.net")
+	cli.RootCommandHelpTemplate += "\n" + t.Get("Forum：https://tom.moe")
+	cli.RootCommandHelpTemplate += "\n" + t.Get("QQ Group：12370907") + "\n"
 
-	cli.RootCommandHelpTemplate += "\n官网：https://panel.haozi.net"
-	cli.RootCommandHelpTemplate += "\n论坛：https://tom.moe"
-	cli.RootCommandHelpTemplate += "\nQ群：12370907\n"
-
-	cmd := &cli.Command{
+	return &cli.Command{
 		Name:     "panel-cli",
-		Usage:    "耗子面板命令行工具",
+		Usage:    t.Get("AcePanel CLI Tool"),
 		Version:  app.Version,
-		Commands: route.Cli(),
-	}
-	if err := cmd.Run(context.Background(), os.Args); err != nil {
-		fmt.Printf("|-%v\n", err)
+		Commands: cmd.Commands(),
 	}
 }

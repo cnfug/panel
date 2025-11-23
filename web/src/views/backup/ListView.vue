@@ -1,15 +1,26 @@
 <script setup lang="ts">
 import backup from '@/api/panel/backup'
-import { renderIcon } from '@/utils'
 import type { MessageReactive } from 'naive-ui'
-import { NButton, NInput, NPopconfirm } from 'naive-ui'
+import { NButton, NDataTable, NFlex, NInput, NPopconfirm } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
+import app from '@/api/panel/app'
+import website from '@/api/panel/website'
 import { formatDateTime } from '@/utils'
-import type { Backup } from './types'
+import UploadModal from '@/views/backup/UploadModal.vue'
 
+const { $gettext } = useGettext()
 const type = defineModel<string>('type', { type: String, required: true })
 
 let messageReactive: MessageReactive | null = null
+
+const uploadModal = ref(false)
+
+const createModal = ref(false)
+const createModel = ref({
+  target: '',
+  path: ''
+})
 
 const restoreModal = ref(false)
 const restoreModel = ref({
@@ -17,22 +28,24 @@ const restoreModel = ref({
   target: ''
 })
 
+const websites = ref<any>([])
+
 const columns: any = [
   {
-    title: '文件名',
+    title: $gettext('Filename'),
     key: 'name',
     minWidth: 200,
     resizable: true,
     ellipsis: { tooltip: true }
   },
   {
-    title: '大小',
+    title: $gettext('Size'),
     key: 'size',
     width: 160,
     ellipsis: { tooltip: true }
   },
   {
-    title: '更新日期',
+    title: $gettext('Update Date'),
     key: 'time',
     width: 200,
     ellipsis: { tooltip: true },
@@ -41,10 +54,9 @@ const columns: any = [
     }
   },
   {
-    title: '操作',
+    title: $gettext('Actions'),
     key: 'actions',
-    width: 200,
-    align: 'center',
+    width: 260,
     hideInExcel: true,
     render(row: any) {
       return [
@@ -60,8 +72,7 @@ const columns: any = [
             }
           },
           {
-            default: () => '恢复',
-            icon: renderIcon('material-symbols:settings-backup-restore-rounded', { size: 14 })
+            default: () => $gettext('Restore')
           }
         ),
         h(
@@ -71,7 +82,7 @@ const columns: any = [
           },
           {
             default: () => {
-              return '确定删除备份吗？'
+              return $gettext('Are you sure you want to delete this backup?')
             },
             trigger: () => {
               return h(
@@ -82,8 +93,7 @@ const columns: any = [
                   style: 'margin-left: 15px;'
                 },
                 {
-                  default: () => '删除',
-                  icon: renderIcon('material-symbols:delete-outline', { size: 14 })
+                  default: () => $gettext('Delete')
                 }
               )
             }
@@ -94,60 +104,82 @@ const columns: any = [
   }
 ]
 
-const data = ref<Backup[]>([])
+const { loading, data, page, total, pageSize, pageCount, refresh } = usePagination(
+  (page, pageSize) => backup.list(type.value, page, pageSize),
+  {
+    initialData: { total: 0, list: [] },
+    initialPageSize: 20,
+    total: (res: any) => res.total,
+    data: (res: any) => res.items
+  }
+)
 
-const pagination = reactive({
-  page: 1,
-  pageCount: 1,
-  pageSize: 20,
-  itemCount: 0,
-  showQuickJumper: true,
-  showSizePicker: true,
-  pageSizes: [20, 50, 100, 200]
-})
-
-const getList = async (page: number, limit: number) => {
-  const { data } = await backup.list(type.value, page, limit)
-  return data
+const handleCreate = () => {
+  useRequest(backup.create(type.value, createModel.value.target, createModel.value.path)).onSuccess(
+    () => {
+      createModal.value = false
+      window.$bus.emit('backup:refresh')
+      window.$message.success($gettext('Created successfully'))
+    }
+  )
 }
 
-const onPageChange = (page: number) => {
-  pagination.page = page
-  getList(page, pagination.pageSize).then((res) => {
-    data.value = res.items
-    pagination.itemCount = res.total
-    pagination.pageCount = res.total / pagination.pageSize + 1
-  })
-}
-
-const onPageSizeChange = (pageSize: number) => {
-  pagination.pageSize = pageSize
-  onPageChange(1)
-}
-
-const handleRestore = async () => {
-  messageReactive = window.$message.loading('恢复中...', {
+const handleRestore = () => {
+  messageReactive = window.$message.loading($gettext('Restoring...'), {
     duration: 0
   })
-  await backup.restore(type.value, restoreModel.value.file, restoreModel.value.target).then(() => {
-    messageReactive?.destroy()
-    window.$message.success('恢复成功')
-    onPageChange(pagination.page)
-  })
+
+  useRequest(backup.restore(type.value, restoreModel.value.file, restoreModel.value.target))
+    .onSuccess(() => {
+      refresh()
+      window.$message.success($gettext('Restored successfully'))
+    })
+    .onComplete(() => {
+      messageReactive?.destroy()
+    })
 }
 
 const handleDelete = async (file: string) => {
-  await backup.delete(type.value, file).then(() => {
-    window.$message.success('删除成功')
-    onPageChange(pagination.page)
+  useRequest(backup.delete(type.value, file)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Deleted successfully'))
   })
 }
 
+watch(
+  type,
+  (newType) => {
+    if (newType === 'website') {
+      createModel.value.target = websites.value[0]?.value || ''
+      restoreModel.value.target = websites.value[0]?.value || ''
+    } else {
+      createModel.value.target = ''
+      restoreModel.value.target = ''
+    }
+    refresh()
+  },
+  { immediate: true }
+)
+
 onMounted(() => {
-  onPageChange(pagination.page)
-  window.$bus.on('backup:refresh', () => {
-    onPageChange(pagination.page)
+  useRequest(app.isInstalled('nginx')).onSuccess(({ data }) => {
+    if (data) {
+      useRequest(website.list(1, 10000)).onSuccess(({ data }: { data: any }) => {
+        for (const item of data.items) {
+          websites.value.push({
+            label: item.name,
+            value: item.name
+          })
+        }
+        if (type.value === 'website') {
+          createModel.value.target = websites.value[0]?.value
+          restoreModel.value.target = websites.value[0]?.value
+        }
+      })
+    }
   })
+  refresh()
+  window.$bus.on('backup:refresh', refresh)
 })
 
 onUnmounted(() => {
@@ -156,21 +188,77 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <n-data-table
-    striped
-    remote
-    :scroll-x="1000"
-    :loading="false"
-    :columns="columns"
-    :data="data"
-    :row-key="(row: any) => row.name"
-    @update:page="onPageChange"
-    @update:page-size="onPageSizeChange"
-  />
+  <n-flex vertical :size="20">
+    <n-flex>
+      <n-button type="primary" @click="createModal = true">{{
+        $gettext('Create Backup')
+      }}</n-button>
+      <n-button type="primary" @click="uploadModal = true" ghost>{{
+        $gettext('Upload Backup')
+      }}</n-button>
+    </n-flex>
+    <n-data-table
+      striped
+      remote
+      :scroll-x="1000"
+      :loading="loading"
+      :columns="columns"
+      :data="data"
+      :row-key="(row: any) => row.name"
+      v-model:page="page"
+      v-model:pageSize="pageSize"
+      :pagination="{
+        page: page,
+        pageCount: pageCount,
+        pageSize: pageSize,
+        itemCount: total,
+        showQuickJumper: true,
+        showSizePicker: true,
+        pageSizes: [20, 50, 100, 200]
+      }"
+    />
+  </n-flex>
+  <n-modal
+    v-model:show="createModal"
+    preset="card"
+    :title="$gettext('Create Backup')"
+    style="width: 60vw"
+    size="huge"
+    :bordered="false"
+    :segmented="false"
+    @close="createModal = false"
+  >
+    <n-form :model="createModel">
+      <n-form-item v-if="type == 'website'" path="name" :label="$gettext('Website')">
+        <n-select
+          v-model:value="createModel.target"
+          :options="websites"
+          :placeholder="$gettext('Select website')"
+        />
+      </n-form-item>
+      <n-form-item v-if="type != 'website'" path="name" :label="$gettext('Database Name')">
+        <n-input
+          v-model:value="createModel.target"
+          type="text"
+          @keydown.enter.prevent
+          :placeholder="$gettext('Enter database name')"
+        />
+      </n-form-item>
+      <n-form-item path="path" :label="$gettext('Save Directory')">
+        <n-input
+          v-model:value="createModel.path"
+          type="text"
+          @keydown.enter.prevent
+          :placeholder="$gettext('Leave empty to use default path')"
+        />
+      </n-form-item>
+    </n-form>
+    <n-button type="info" block @click="handleCreate">{{ $gettext('Submit') }}</n-button>
+  </n-modal>
   <n-modal
     v-model:show="restoreModal"
     preset="card"
-    title="恢复备份"
+    :title="$gettext('Restore Backup')"
     style="width: 60vw"
     size="huge"
     :bordered="false"
@@ -178,12 +266,20 @@ onUnmounted(() => {
     @close="restoreModal = false"
   >
     <n-form :model="restoreModel">
-      <n-form-item path="name" label="恢复目标">
+      <n-form-item v-if="type == 'website'" path="name" :label="$gettext('Website')">
+        <n-select
+          v-model:value="restoreModel.target"
+          :options="websites"
+          :placeholder="$gettext('Select website')"
+        />
+      </n-form-item>
+      <n-form-item v-if="type != 'website'" path="name" :label="$gettext('Database')">
         <n-input v-model:value="restoreModel.target" type="text" @keydown.enter.prevent />
       </n-form-item>
     </n-form>
-    <n-button type="info" block @click="handleRestore">提交</n-button>
+    <n-button type="info" block @click="handleRestore">{{ $gettext('Submit') }}</n-button>
   </n-modal>
+  <upload-modal v-model:show="uploadModal" v-model:type="type" />
 </template>
 
 <style scoped lang="scss"></style>

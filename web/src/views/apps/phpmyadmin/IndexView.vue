@@ -5,9 +5,11 @@ defineOptions({
 
 import Editor from '@guolao/vue-monaco-editor'
 import { NButton } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
 import phpmyadmin from '@/api/apps/phpmyadmin'
 
+const { $gettext } = useGettext()
 const currentTab = ref('status')
 const hostname = ref(window.location.hostname)
 const port = ref(0)
@@ -16,76 +18,67 @@ const newPort = ref(0)
 const url = computed(() => {
   return `http://${hostname.value}:${port.value}/${path.value}`
 })
-const config = ref('')
+
+const { data: config } = useRequest(phpmyadmin.config, {
+  initialData: {
+    config: ''
+  }
+})
 
 const getInfo = async () => {
-  phpmyadmin.info().then((res: any) => {
-    path.value = res.data.path
-    port.value = res.data.port
-    newPort.value = res.data.port
+  const data = await phpmyadmin.info()
+  path.value = data.path
+  port.value = data.port
+  newPort.value = data.port
+}
+
+const handleSave = () => {
+  useRequest(phpmyadmin.port(newPort.value)).onSuccess(() => {
+    window.$message.success($gettext('Saved successfully'))
+    getInfo()
   })
 }
 
-const handleSave = async () => {
-  await phpmyadmin.port(newPort.value)
-  window.$message.success('保存成功')
-  await getInfo()
-}
-
-const getConfig = async () => {
-  const { data } = await phpmyadmin.getConfig()
-  return data
-}
-
-const handleSaveConfig = async () => {
-  await phpmyadmin.saveConfig(config.value)
-  window.$message.success('保存成功')
+const handleSaveConfig = () => {
+  useRequest(phpmyadmin.updateConfig(config.value)).onSuccess(() => {
+    window.$message.success($gettext('Saved successfully'))
+  })
 }
 
 onMounted(() => {
   getInfo()
-  getConfig().then((res) => {
-    config.value = res
-  })
 })
 </script>
 
 <template>
   <common-page show-footer>
-    <template #action>
-      <n-button v-if="currentTab == 'status'" class="ml-16" type="primary" @click="handleSave">
-        <TheIcon :size="18" icon="material-symbols:save-outline" />
-        保存
-      </n-button>
-      <n-button
-        v-if="currentTab == 'config'"
-        class="ml-16"
-        type="primary"
-        @click="handleSaveConfig"
-      >
-        <TheIcon :size="18" icon="material-symbols:save-outline" />
-        保存
-      </n-button>
-    </template>
     <n-tabs v-model:value="currentTab" type="line" animated>
-      <n-tab-pane name="status" tab="状态">
-        <n-space vertical>
-          <n-card title="访问信息" rounded-10>
+      <n-tab-pane name="status" :tab="$gettext('Status')">
+        <n-flex vertical>
+          <n-card :title="$gettext('Access Information')">
             <n-alert type="info">
-              访问地址: <a :href="url" target="_blank">{{ url }}</a>
+              {{ $gettext('Access URL:') }} <a :href="url" target="_blank">{{ url }}</a>
             </n-alert>
           </n-card>
-          <n-card title="修改端口" rounded-10>
-            <n-input-number v-model:value="newPort" :min="1" :max="65535" />
-            修改 phpMyAdmin 访问端口
+          <n-card :title="$gettext('Modify Port')">
+            <n-flex>
+              <n-input-number v-model:value="newPort" :min="1" :max="65535" />
+              <n-button type="primary" @click="handleSave">
+                {{ $gettext('Save') }}
+              </n-button>
+            </n-flex>
+            {{ $gettext('Modify phpMyAdmin access port') }}
           </n-card>
-        </n-space>
+        </n-flex>
       </n-tab-pane>
-      <n-tab-pane name="config" tab="修改配置">
-        <n-space vertical>
+      <n-tab-pane name="config" :tab="$gettext('Modify Configuration')">
+        <n-flex vertical>
           <n-alert type="warning">
-            此处修改的是 phpMyAdmin 的 OpenResty
-            配置文件，如果您不了解各参数的含义，请不要随意修改！
+            {{
+              $gettext(
+                'This modifies the OpenResty configuration file for phpMyAdmin. If you do not understand the meaning of each parameter, please do not modify it randomly!'
+              )
+            }}
           </n-alert>
           <Editor
             v-model:value="config"
@@ -95,11 +88,15 @@ onMounted(() => {
             mt-8
             :options="{
               automaticLayout: true,
-              formatOnType: true,
-              formatOnPaste: true
+              smoothScrolling: true
             }"
           />
-        </n-space>
+          <n-flex>
+            <n-button type="primary" @click="handleSaveConfig">
+              {{ $gettext('Save') }}
+            </n-button>
+          </n-flex>
+        </n-flex>
       </n-tab-pane>
     </n-tabs>
   </common-page>

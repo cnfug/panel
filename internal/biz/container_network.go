@@ -1,8 +1,8 @@
 package biz
 
 import (
-	"github.com/TheTNB/panel/internal/http/request"
-	"github.com/TheTNB/panel/pkg/types"
+	"github.com/acepanel/panel/internal/http/request"
+	"github.com/acepanel/panel/pkg/types"
 )
 
 type ContainerNetworkRepo interface {

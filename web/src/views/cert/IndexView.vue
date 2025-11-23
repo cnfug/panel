@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import UploadCertModal from '@/views/cert/UploadCertModal.vue'
-
 defineOptions({
   name: 'cert-index'
 })
 
 import { NButton } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
 import app from '@/api/panel/app'
 import cert from '@/api/panel/cert'
@@ -16,7 +15,9 @@ import CreateAccountModal from '@/views/cert/CreateAccountModal.vue'
 import CreateCertModal from '@/views/cert/CreateCertModal.vue'
 import CreateDnsModal from '@/views/cert/CreateDnsModal.vue'
 import DnsView from '@/views/cert/DnsView.vue'
+import UploadCertModal from '@/views/cert/UploadCertModal.vue'
 
+const { $gettext } = useGettext()
 const currentTab = ref('cert')
 
 const uploadCert = ref(false)
@@ -31,46 +32,51 @@ const accounts = ref<any>([])
 const dnsProviders = ref<any>([])
 const caProviders = ref<any>([])
 
-const getAsyncData = async () => {
-  const { data: algorithmData } = await cert.algorithms()
-  algorithms.value = algorithmData
+const getAsyncData = () => {
+  useRequest(cert.algorithms()).onSuccess(({ data }) => {
+    algorithms.value = data
+  })
 
   websites.value = []
-  app.isInstalled('nginx').then(async (res) => {
-    if (res.data.installed) {
-      const { data: websiteData } = await website.list(1, 10000)
-      for (const item of websiteData.items) {
-        websites.value.push({
-          label: item.name,
-          value: item.id
-        })
-      }
+  useRequest(app.isInstalled('nginx')).onSuccess(({ data }) => {
+    if (data) {
+      useRequest(website.list(1, 10000)).onSuccess(({ data }) => {
+        for (const item of data.items) {
+          websites.value.push({
+            label: item.name,
+            value: item.id
+          })
+        }
+      })
     }
   })
 
-  const { data: dnsData } = await cert.dns(1, 10000)
   dns.value = []
-  for (const item of dnsData.items) {
-    dns.value.push({
-      label: item.name,
-      value: item.id
-    })
-  }
+  useRequest(cert.dns(1, 10000)).onSuccess(({ data }) => {
+    for (const item of data.items) {
+      dns.value.push({
+        label: item.name,
+        value: item.id
+      })
+    }
+  })
 
-  const { data: accountData } = await cert.accounts(1, 10000)
   accounts.value = []
-  for (const item of accountData.items) {
-    accounts.value.push({
-      label: item.email,
-      value: item.id
-    })
-  }
+  useRequest(cert.accounts(1, 10000)).onSuccess(({ data }) => {
+    for (const item of data.items) {
+      accounts.value.push({
+        label: item.email,
+        value: item.id
+      })
+    }
+  })
 
-  const { data: dnsProviderData } = await cert.dnsProviders()
-  dnsProviders.value = dnsProviderData
-
-  const { data: caProviderData } = await cert.caProviders()
-  caProviders.value = caProviderData
+  useRequest(cert.dnsProviders()).onSuccess(({ data }) => {
+    dnsProviders.value = data
+  })
+  useRequest(cert.caProviders()).onSuccess(({ data }) => {
+    caProviders.value = data
+  })
 }
 
 onMounted(() => {
@@ -84,38 +90,43 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <common-page show-footer>
-    <template #action>
+  <common-page show-header show-footer>
+    <template #tabbar>
+      <n-tabs v-model:value="currentTab" animated>
+        <n-tab name="cert" :tab="$gettext('Certificate List')" />
+        <n-tab name="account" :tab="$gettext('Account List')" />
+        <n-tab name="dns" :tab="$gettext('DNS List')" />
+      </n-tabs>
+    </template>
+    <n-flex vertical>
       <n-flex>
         <n-button v-if="currentTab == 'cert'" type="success" @click="uploadCert = true">
-          <TheIcon :size="18" icon="material-symbols:upload" />
-          上传证书
+          {{ $gettext('Upload Certificate') }}
         </n-button>
         <n-button v-if="currentTab == 'cert'" type="primary" @click="createCert = true">
-          <TheIcon :size="18" icon="material-symbols:add" />
-          创建证书
+          {{ $gettext('Create Certificate') }}
         </n-button>
-        <n-button v-if="currentTab == 'user'" type="primary" @click="createAccount = true">
-          <TheIcon :size="18" icon="material-symbols:add" />
-          创建账号
+        <n-button v-if="currentTab == 'account'" type="primary" @click="createAccount = true">
+          {{ $gettext('Create Account') }}
         </n-button>
         <n-button v-if="currentTab == 'dns'" type="primary" @click="createDNS = true">
-          <TheIcon :size="18" icon="material-symbols:add" />
-          创建 DNS
+          {{ $gettext('Create DNS') }}
         </n-button>
       </n-flex>
-    </template>
-    <n-tabs v-model:value="currentTab" type="line" animated>
-      <n-tab-pane name="cert" tab="证书列表">
-        <cert-view :accounts="accounts" :algorithms="algorithms" :websites="websites" :dns="dns" />
-      </n-tab-pane>
-      <n-tab-pane name="user" tab="账号列表">
-        <account-view :ca-providers="caProviders" :algorithms="algorithms" />
-      </n-tab-pane>
-      <n-tab-pane name="dns" tab="DNS 列表">
-        <dns-view :dns-providers="dnsProviders" />
-      </n-tab-pane>
-    </n-tabs>
+      <cert-view
+        v-if="currentTab == 'cert'"
+        :accounts="accounts"
+        :algorithms="algorithms"
+        :websites="websites"
+        :dns="dns"
+      />
+      <account-view
+        v-if="currentTab == 'account'"
+        :ca-providers="caProviders"
+        :algorithms="algorithms"
+      />
+      <dns-view v-if="currentTab == 'dns'" :dns-providers="dnsProviders" />
+    </n-flex>
   </common-page>
   <upload-cert-modal v-model:show="uploadCert" />
   <create-cert-modal

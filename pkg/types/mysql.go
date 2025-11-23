@@ -7,5 +7,7 @@ type MySQLUser struct {
 }
 
 type MySQLDatabase struct {
-	Name string `json:"name"`
+	Name      string `json:"name"`
+	CharSet   string `json:"char_set"`
+	Collation string `json:"collation"`
 }

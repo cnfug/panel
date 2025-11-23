@@ -4,24 +4,28 @@ import (
 	"context"
 	"time"
 
-	"github.com/TheTNB/panel/internal/http/request"
-	"github.com/TheTNB/panel/pkg/types"
+	"github.com/acepanel/panel/internal/http/request"
+	"github.com/acepanel/panel/pkg/types"
 )
 
 type Website struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
-	Name      string    `gorm:"not null;unique" json:"name"`
+	Name      string    `gorm:"not null;default:'';unique" json:"name"`
+	Type      string    `gorm:"not null;default:'php'" json:"type"`
 	Status    bool      `gorm:"not null;default:true" json:"status"`
-	Path      string    `gorm:"not null" json:"path"`
-	Https     bool      `gorm:"not null" json:"https"`
-	Remark    string    `gorm:"not null" json:"remark"`
+	Path      string    `gorm:"not null;default:''" json:"path"`
+	Https     bool      `gorm:"not null;default:false" json:"https"`
+	Remark    string    `gorm:"not null;default:''" json:"remark"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	CertExpire string `gorm:"-:all" json:"cert_expire"` // 仅显示
 
 	Cert *Cert `gorm:"foreignKey:WebsiteID" json:"cert"`
 }
 
 type WebsiteRepo interface {
+	GetRewrites() (map[string]string, error)
 	UpdateDefaultConfig(req *request.WebsiteDefaultConfig) error
 	Count() (int64, error)
 	Get(id uint) (*types.WebsiteSetting, error)
@@ -34,5 +38,6 @@ type WebsiteRepo interface {
 	UpdateRemark(id uint, remark string) error
 	ResetConfig(id uint) error
 	UpdateStatus(id uint, status bool) error
+	UpdateCert(req *request.WebsiteUpdateCert) error
 	ObtainCert(ctx context.Context, id uint) error
 }

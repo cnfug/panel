@@ -15,9 +15,11 @@ import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { NButton } from 'naive-ui'
 import VChart from 'vue-echarts'
+import { useGettext } from 'vue3-gettext'
 
 import monitor from '@/api/panel/monitor'
-import type { MonitorData } from '@/views/monitor/types'
+
+const { $gettext } = useGettext()
 
 use([
   CanvasRenderer,
@@ -29,43 +31,33 @@ use([
   DataZoomComponent
 ])
 
-const data = ref<MonitorData>({
-  times: [],
-  load: {
-    load1: [],
-    load5: [],
-    load15: []
-  },
-  cpu: {
-    percent: []
-  },
-  mem: {
-    total: '',
-    used: [],
-    available: []
-  },
-  swap: {
-    total: '',
-    used: [],
-    free: []
-  },
-  net: {
-    sent: [],
-    recv: [],
-    tx: [],
-    rx: []
-  }
-})
-
 const start = ref(Math.floor(new Date(new Date().setHours(0, 0, 0, 0)).getTime()))
 const end = ref(Math.floor(Date.now()))
+
+useRequest(monitor.setting()).onSuccess(({ data }) => {
+  monitorSwitch.value = data.enabled
+  saveDay.value = data.days
+})
+
+const { loading, data } = useWatcher(monitor.list(start.value, end.value), [start, end], {
+  initialData: {
+    times: [],
+    load: {},
+    cpu: {},
+    mem: {},
+    swap: {},
+    net: {}
+  },
+  debounce: [500],
+  immediate: true
+})
 
 const monitorSwitch = ref(false)
 const saveDay = ref(30)
 
 const load = ref<any>({
   title: {
-    text: '负载',
+    text: $gettext('Load'),
     textAlign: 'left',
     textStyle: {
       fontSize: 20
@@ -76,7 +68,7 @@ const load = ref<any>({
   },
   legend: {
     align: 'left',
-    data: ['1分钟', '5分钟', '15分钟']
+    data: [$gettext('1 minute'), $gettext('5 minutes'), $gettext('15 minutes')]
   },
   xAxis: [{ type: 'category', boundaryGap: false, data: data.value.times }],
   yAxis: [
@@ -92,22 +84,22 @@ const load = ref<any>({
   },
   series: [
     {
-      name: '1分钟',
+      name: $gettext('1 minute'),
       type: 'line',
       smooth: true,
       data: data.value.load.load1,
       markPoint: {
         data: [
-          { type: 'max', name: '最大值' },
-          { type: 'min', name: '最小值' }
+          { type: 'max', name: $gettext('Maximum') },
+          { type: 'min', name: $gettext('Minimum') }
         ]
       },
       markLine: {
-        data: [{ type: 'average', name: '平均值' }]
+        data: [{ type: 'average', name: $gettext('Average') }]
       }
     },
     {
-      name: '5分钟',
+      name: $gettext('5 minutes'),
       type: 'line',
       smooth: true,
       emphasis: {
@@ -120,16 +112,16 @@ const load = ref<any>({
       data: data.value.load.load5,
       markPoint: {
         data: [
-          { type: 'max', name: '最大值' },
-          { type: 'min', name: '最小值' }
+          { type: 'max', name: $gettext('Maximum') },
+          { type: 'min', name: $gettext('Minimum') }
         ]
       },
       markLine: {
-        data: [{ type: 'average', name: '平均值' }]
+        data: [{ type: 'average', name: $gettext('Average') }]
       }
     },
     {
-      name: '15分钟',
+      name: $gettext('15 minutes'),
       type: 'line',
       smooth: true,
       emphasis: {
@@ -142,12 +134,12 @@ const load = ref<any>({
       data: data.value.load.load15,
       markPoint: {
         data: [
-          { type: 'max', name: '最大值' },
-          { type: 'min', name: '最小值' }
+          { type: 'max', name: $gettext('Maximum') },
+          { type: 'min', name: $gettext('Minimum') }
         ]
       },
       markLine: {
-        data: [{ type: 'average', name: '平均值' }]
+        data: [{ type: 'average', name: $gettext('Average') }]
       }
     }
   ]
@@ -167,7 +159,7 @@ const cpu = ref<any>({
   xAxis: [{ type: 'category', boundaryGap: false, data: data.value.times }],
   yAxis: [
     {
-      name: '单位 %',
+      name: $gettext('Unit %'),
       min: 0,
       max: 100,
       type: 'value',
@@ -184,7 +176,7 @@ const cpu = ref<any>({
   },
   series: [
     {
-      name: '使用率',
+      name: $gettext('Usage'),
       type: 'line',
       smooth: true,
       emphasis: {
@@ -197,12 +189,12 @@ const cpu = ref<any>({
       data: data.value.cpu.percent,
       markPoint: {
         data: [
-          { type: 'max', name: '最大值' },
-          { type: 'min', name: '最小值' }
+          { type: 'max', name: $gettext('Maximum') },
+          { type: 'min', name: $gettext('Minimum') }
         ]
       },
       markLine: {
-        data: [{ type: 'average', name: '平均值' }]
+        data: [{ type: 'average', name: $gettext('Average') }]
       }
     }
   ]
@@ -210,7 +202,7 @@ const cpu = ref<any>({
 
 const mem = ref<any>({
   title: {
-    text: '内存',
+    text: $gettext('Memory'),
     textAlign: 'left',
     textStyle: {
       fontSize: 20
@@ -221,12 +213,12 @@ const mem = ref<any>({
   },
   legend: {
     align: 'left',
-    data: ['内存', 'Swap']
+    data: [$gettext('Memory'), 'Swap']
   },
   xAxis: [{ type: 'category', boundaryGap: false, data: data.value.times }],
   yAxis: [
     {
-      name: '单位 MB',
+      name: $gettext('Unit MB'),
       min: 0,
       max: data.value.mem.total,
       type: 'value',
@@ -243,7 +235,7 @@ const mem = ref<any>({
   },
   series: [
     {
-      name: '内存',
+      name: $gettext('Memory'),
       type: 'line',
       smooth: true,
       emphasis: {
@@ -256,12 +248,12 @@ const mem = ref<any>({
       data: data.value.mem.used,
       markPoint: {
         data: [
-          { type: 'max', name: '最大值' },
-          { type: 'min', name: '最小值' }
+          { type: 'max', name: $gettext('Maximum') },
+          { type: 'min', name: $gettext('Minimum') }
         ]
       },
       markLine: {
-        data: [{ type: 'average', name: '平均值' }]
+        data: [{ type: 'average', name: $gettext('Average') }]
       }
     },
     {
@@ -278,12 +270,12 @@ const mem = ref<any>({
       data: data.value.swap.used,
       markPoint: {
         data: [
-          { type: 'max', name: '最大值' },
-          { type: 'min', name: '最小值' }
+          { type: 'max', name: $gettext('Maximum') },
+          { type: 'min', name: $gettext('Minimum') }
         ]
       },
       markLine: {
-        data: [{ type: 'average', name: '平均值' }]
+        data: [{ type: 'average', name: $gettext('Average') }]
       }
     }
   ]
@@ -291,7 +283,7 @@ const mem = ref<any>({
 
 const net = ref<any>({
   title: {
-    text: '网络',
+    text: $gettext('Network'),
     textAlign: 'left',
     textStyle: {
       fontSize: 20
@@ -302,12 +294,17 @@ const net = ref<any>({
   },
   legend: {
     align: 'left',
-    data: ['总计出', '总计入', '每秒出', '每秒入']
+    data: [
+      $gettext('Total Out'),
+      $gettext('Total In'),
+      $gettext('Per Second Out'),
+      $gettext('Per Second In')
+    ]
   },
   xAxis: [{ type: 'category', boundaryGap: false, data: data.value.times }],
   yAxis: [
     {
-      name: '单位 MB',
+      name: $gettext('Unit MB'),
       type: 'value',
       axisLabel: {
         formatter: '{value} MB'
@@ -322,7 +319,7 @@ const net = ref<any>({
   },
   series: [
     {
-      name: '总计出',
+      name: $gettext('Total Out'),
       type: 'line',
       smooth: true,
       emphasis: {
@@ -335,16 +332,16 @@ const net = ref<any>({
       data: data.value.net.sent,
       markPoint: {
         data: [
-          { type: 'max', name: '最大值' },
-          { type: 'min', name: '最小值' }
+          { type: 'max', name: $gettext('Maximum') },
+          { type: 'min', name: $gettext('Minimum') }
         ]
       },
       markLine: {
-        data: [{ type: 'average', name: '平均值' }]
+        data: [{ type: 'average', name: $gettext('Average') }]
       }
     },
     {
-      name: '总计入',
+      name: $gettext('Total In'),
       type: 'line',
       smooth: true,
       emphasis: {
@@ -357,16 +354,16 @@ const net = ref<any>({
       data: data.value.net.recv,
       markPoint: {
         data: [
-          { type: 'max', name: '最大值' },
-          { type: 'min', name: '最小值' }
+          { type: 'max', name: $gettext('Maximum') },
+          { type: 'min', name: $gettext('Minimum') }
         ]
       },
       markLine: {
-        data: [{ type: 'average', name: '平均值' }]
+        data: [{ type: 'average', name: $gettext('Average') }]
       }
     },
     {
-      name: '每秒出',
+      name: $gettext('Per Second Out'),
       type: 'line',
       smooth: true,
       emphasis: {
@@ -379,16 +376,16 @@ const net = ref<any>({
       data: data.value.net.tx,
       markPoint: {
         data: [
-          { type: 'max', name: '最大值' },
-          { type: 'min', name: '最小值' }
+          { type: 'max', name: $gettext('Maximum') },
+          { type: 'min', name: $gettext('Minimum') }
         ]
       },
       markLine: {
-        data: [{ type: 'average', name: '平均值' }]
+        data: [{ type: 'average', name: $gettext('Average') }]
       }
     },
     {
-      name: '每秒入',
+      name: $gettext('Per Second In'),
       type: 'line',
       smooth: true,
       emphasis: {
@@ -401,39 +398,26 @@ const net = ref<any>({
       data: data.value.net.rx,
       markPoint: {
         data: [
-          { type: 'max', name: '最大值' },
-          { type: 'min', name: '最小值' }
+          { type: 'max', name: $gettext('Maximum') },
+          { type: 'min', name: $gettext('Minimum') }
         ]
       },
       markLine: {
-        data: [{ type: 'average', name: '平均值' }]
+        data: [{ type: 'average', name: $gettext('Average') }]
       }
     }
   ]
 })
 
-const fetchData = async () => {
-  monitor.list(start.value, end.value).then((res) => {
-    data.value = res.data
-  })
-}
-
-const fetchSetting = async () => {
-  monitor.setting().then((res) => {
-    monitorSwitch.value = res.data.enabled
-    saveDay.value = res.data.days
-  })
-}
-
 const handleUpdate = async () => {
-  monitor.updateSetting(monitorSwitch.value, saveDay.value).then(() => {
-    window.$message.success('操作成功')
+  useRequest(monitor.updateSetting(monitorSwitch.value, saveDay.value)).onSuccess(() => {
+    window.$message.success($gettext('Operation successful'))
   })
 }
 
 const handleClear = async () => {
-  monitor.clear().then(() => {
-    window.$message.success('操作成功')
+  useRequest(monitor.clear()).onSuccess(() => {
+    window.$message.success($gettext('Operation successful'))
   })
 }
 
@@ -455,85 +439,75 @@ watch(data, () => {
   net.value.series[2].data = data.value.net.tx
   net.value.series[3].data = data.value.net.rx
 })
-
-// 监听时间选择的变化
-watch([start, end], () => {
-  // 开始时间不能大于结束时间
-  if (start.value > end.value) {
-    window.$message.error('开始时间不能大于结束时间')
-    return
-  }
-  fetchData()
-})
-
-onMounted(() => {
-  fetchSetting()
-  fetchData()
-})
 </script>
 
 <template>
-  <common-page show-footer>
-    <template #action>
-      <n-popconfirm @positive-click="handleClear">
-        <template #trigger>
-          <n-button type="error">
-            <TheIcon :size="18" icon="material-symbols:delete-outline" />
-            清除监控记录
-          </n-button>
-        </template>
-        确定要清空吗？
-      </n-popconfirm>
-    </template>
-    <n-card :segmented="true" flex items-center rounded-10>
-      <n-form
-        inline
-        label-placement="left"
-        label-width="auto"
-        require-mark-placement="right-hanging"
-      >
-        <n-flex items-center>
-          <n-form-item label="开启监控">
+  <common-page show-header show-footer>
+    <template #tabbar>
+      <div class="flex items-center justify-between gap-8 py-4">
+        <div class="flex items-center gap-6">
+          <div class="flex items-center gap-10">
+            {{ $gettext('Enable Monitoring') }}
             <n-switch v-model:value="monitorSwitch" @update-value="handleUpdate" />
-          </n-form-item>
-          <n-form-item label="保存天数">
+          </div>
+          <div class="flex items-center gap-10 pl-20">
+            {{ $gettext('Save Days') }}
             <n-input-number v-model:value="saveDay">
-              <template #suffix> 天 </template>
+              <template #suffix> {{ $gettext('days') }} </template>
             </n-input-number>
-          </n-form-item>
-          <n-form-item>
-            <n-button type="primary" @click="handleUpdate">确定</n-button>
-          </n-form-item>
-          <n-form-item label="时间选择">
+          </div>
+          <div>
+            <n-button type="primary" @click="handleUpdate">{{ $gettext('Confirm') }}</n-button>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-10">
+          <span>{{ $gettext('Time Selection') }}</span>
+          <div class="flex items-center gap-2">
             <n-date-picker v-model:value="start" type="datetime" />
-            -
+            <span class="mx-1">-</span>
             <n-date-picker v-model:value="end" type="datetime" />
-          </n-form-item>
-        </n-flex>
-      </n-form>
-    </n-card>
-    <n-grid cols="1 s:1 m:1 l:2 xl:2 2xl:2" item-responsive responsive="screen" pt-20>
+          </div>
+          <n-popconfirm @positive-click="handleClear">
+            <template #trigger>
+              <n-button type="error">
+                {{ $gettext('Clear Monitoring Records') }}
+              </n-button>
+            </template>
+            {{ $gettext('Are you sure you want to clear?') }}
+          </n-popconfirm>
+        </div>
+      </div>
+    </template>
+    <n-grid
+      v-if="!loading"
+      cols="1 s:1 m:1 l:2 xl:2 2xl:2"
+      item-responsive
+      responsive="screen"
+      pt-20
+    >
       <n-gi m-10>
-        <n-card :segmented="true" rounded-10 style="height: 40vh">
+        <n-card :bordered="false" style="height: 40vh">
           <v-chart class="chart" :option="load" autoresize />
         </n-card>
       </n-gi>
       <n-gi m-10>
-        <n-card :segmented="true" rounded-10 style="height: 40vh">
+        <n-card :bordered="false" style="height: 40vh">
           <v-chart class="chart" :option="cpu" autoresize />
         </n-card>
       </n-gi>
       <n-gi m-10>
-        <n-card :segmented="true" rounded-10 style="height: 40vh">
+        <n-card :bordered="false" style="height: 40vh">
           <v-chart class="chart" :option="mem" autoresize />
         </n-card>
       </n-gi>
       <n-gi m-10>
-        <n-card :segmented="true" rounded-10 style="height: 40vh">
+        <n-card :bordered="false" style="height: 40vh">
           <v-chart class="chart" :option="net" autoresize />
         </n-card>
       </n-gi>
     </n-grid>
+    <n-skeleton v-else text :repeat="40" />
   </common-page>
 </template>
 

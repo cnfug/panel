@@ -1,54 +1,63 @@
-// Package apploader 面板应用加载器
 package apploader
 
 import (
-	"fmt"
-	"log"
+	"reflect"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/TheTNB/panel/pkg/types"
+	"github.com/acepanel/panel/pkg/types"
 )
 
 var apps sync.Map
 
-func Register(app *types.App) {
-	if _, ok := apps.Load(app.Slug); ok {
-		log.Fatalf("app %s already exists", app.Slug)
+type Loader struct{}
+
+func (r *Loader) Add(app ...types.App) {
+	for item := range slices.Values(app) {
+		slug := getSlug(item)
+		apps.Store(slug, item)
 	}
-	apps.Store(app.Slug, app)
 }
 
-func Get(slug string) (*types.App, error) {
-	if app, ok := apps.Load(slug); ok {
-		return app.(*types.App), nil
-	}
-	return nil, fmt.Errorf("app %s not found", slug)
-}
+func (r *Loader) Register(mux chi.Router) {
+	/*for slug, item := range r.Apps {
+		mux.Route("/"+slug, item.Route)
+	}*/
 
-func All() []*types.App {
-	var list []*types.App
-	apps.Range(func(_, app any) bool {
-		if p, ok := app.(*types.App); ok {
-			list = append(list, p)
-		}
+	apps.Range(func(key, value any) bool {
+		app := value.(types.App)
+		mux.Route("/"+key.(string), app.Route)
 		return true
 	})
-
-	// 排序
-	/*slices.SortFunc(list, func(a, b *types.App) int {
-		return cmp.Compare(a.Order, b.Order)
-	})*/
-
-	return list
 }
 
-func Boot(r chi.Router) {
-	apps.Range(func(_, app any) bool {
-		if p, ok := app.(*types.App); ok {
-			r.Route(fmt.Sprintf("/%s", p.Slug), p.Route)
-		}
+func Slugs() []string {
+	var slugs []string
+	apps.Range(func(key, value any) bool {
+		slugs = append(slugs, key.(string))
 		return true
 	})
+	return slugs
+}
+
+func getSlug(app types.App) string {
+	if app == nil {
+		return ""
+	}
+
+	t := reflect.TypeOf(app)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	pkgPath := t.PkgPath()
+	if pkgPath == "" {
+		return ""
+	}
+
+	parts := strings.Split(pkgPath, "/")
+	return parts[len(parts)-1]
 }

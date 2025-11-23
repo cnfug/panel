@@ -1,40 +1,40 @@
 <script setup lang="ts">
 import { NButton, NDataTable, NPopconfirm } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
 import task from '@/api/panel/task'
 import RealtimeLogModal from '@/components/common/RealtimeLogModal.vue'
-import { formatDateTime, renderIcon } from '@/utils'
-import type { Task } from '@/views/task/types'
+import { formatDateTime } from '@/utils'
 
+const { $gettext } = useGettext()
 const logModal = ref(false)
 const logPath = ref('')
 
 const columns: any = [
-  { type: 'selection', fixed: 'left' },
   {
-    title: '任务名',
+    title: $gettext('Task Name'),
     key: 'name',
     minWidth: 200,
     resizable: true,
     ellipsis: { tooltip: true }
   },
   {
-    title: '状态',
+    title: $gettext('Status'),
     key: 'status',
     width: 150,
     ellipsis: { tooltip: true },
     render(row: any) {
       return row.status === 'finished'
-        ? '已完成'
+        ? $gettext('Completed')
         : row.status === 'waiting'
-          ? '等待中'
+          ? $gettext('Waiting')
           : row.status === 'failed'
-            ? '已失败'
-            : '运行中'
+            ? $gettext('Failed')
+            : $gettext('Running')
     }
   },
   {
-    title: '创建时间',
+    title: $gettext('Creation Time'),
     key: 'created_at',
     width: 200,
     ellipsis: { tooltip: true },
@@ -43,7 +43,7 @@ const columns: any = [
     }
   },
   {
-    title: '完成时间',
+    title: $gettext('Completion Time'),
     key: 'updated_at',
     width: 200,
     ellipsis: { tooltip: true },
@@ -52,10 +52,9 @@ const columns: any = [
     }
   },
   {
-    title: '操作',
+    title: $gettext('Actions'),
     key: 'actions',
     width: 200,
-    align: 'center',
     hideInExcel: true,
     render(row: any) {
       return [
@@ -72,8 +71,7 @@ const columns: any = [
                 }
               },
               {
-                default: () => '日志',
-                icon: renderIcon('material-symbols:visibility', { size: 14 })
+                default: () => $gettext('Logs')
               }
             )
           : null,
@@ -85,7 +83,7 @@ const columns: any = [
               },
               {
                 default: () => {
-                  return '确定要删除吗？'
+                  return $gettext('Are you sure you want to delete?')
                 },
                 trigger: () => {
                   return h(
@@ -96,8 +94,7 @@ const columns: any = [
                       style: 'margin-left: 15px;'
                     },
                     {
-                      default: () => '删除',
-                      icon: renderIcon('material-symbols:delete-outline', { size: 14 })
+                      default: () => $gettext('Delete')
                     }
                   )
                 }
@@ -109,70 +106,52 @@ const columns: any = [
   }
 ]
 
-const tasks = ref<Task[]>([] as Task[])
-
-const selectedRowKeys = ref<any>([])
-
-const pagination = reactive({
-  page: 1,
-  pageCount: 1,
-  pageSize: 20,
-  itemCount: 0,
-  showQuickJumper: true,
-  showSizePicker: true,
-  pageSizes: [20, 50, 100, 200]
-})
+const { loading, data, page, total, pageSize, pageCount, refresh } = usePagination(
+  (page, pageSize) => task.list(page, pageSize),
+  {
+    initialData: { total: 0, list: [] },
+    initialPageSize: 20,
+    total: (res: any) => res.total,
+    data: (res: any) => res.items
+  }
+)
 
 const handleDelete = (id: number) => {
-  task.delete(id).then(() => {
-    window.$message.success('删除成功')
-    onPageChange(pagination.page)
+  useRequest(task.delete(id)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Deleted successfully'))
   })
-}
-
-const fetchTaskList = async (page: number, limit: number) => {
-  const { data } = await task.list(page, limit)
-  return data
-}
-
-const onChecked = (rowKeys: any) => {
-  selectedRowKeys.value = rowKeys
-}
-
-const onPageChange = (page: number) => {
-  pagination.page = page
-  fetchTaskList(page, pagination.pageSize).then((res) => {
-    tasks.value = res.items
-    pagination.itemCount = res.total
-    pagination.pageCount = res.total / pagination.pageSize + 1
-  })
-}
-
-const onPageSizeChange = (pageSize: number) => {
-  pagination.pageSize = pageSize
-  onPageChange(1)
 }
 
 onMounted(() => {
-  onPageChange(pagination.page)
+  refresh()
 })
 </script>
 
 <template>
   <n-flex vertical>
-    <n-alert type="info">若日志无法加载，请关闭广告拦截应用！</n-alert>
+    <n-alert type="info">{{
+      $gettext('If logs cannot be loaded, please disable ad blockers!')
+    }}</n-alert>
     <n-data-table
       striped
       remote
       :scroll-x="1000"
-      :loading="false"
+      :loading="loading"
       :columns="columns"
-      :data="tasks"
+      :data="data"
       :row-key="(row: any) => row.id"
-      :pagination="pagination"
-      @update:checked-row-keys="onChecked"
-      @update:page="onPageChange"
-      @update:page-size="onPageSizeChange"
+      v-model:page="page"
+      v-model:pageSize="pageSize"
+      :pagination="{
+        page: page,
+        pageCount: pageCount,
+        pageSize: pageSize,
+        itemCount: total,
+        showQuickJumper: true,
+        showSizePicker: true,
+        pageSizes: [20, 50, 100, 200]
+      }"
     />
   </n-flex>
   <realtime-log-modal v-model:show="logModal" :path="logPath" />

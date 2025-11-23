@@ -2,35 +2,76 @@ package data
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/leonelquinteros/gotext"
 	"github.com/samber/lo"
 	"github.com/spf13/cast"
+	"gorm.io/gorm"
 
-	"github.com/TheTNB/panel/internal/app"
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/internal/embed"
-	"github.com/TheTNB/panel/internal/http/request"
-	"github.com/TheTNB/panel/pkg/acme"
-	"github.com/TheTNB/panel/pkg/cert"
-	"github.com/TheTNB/panel/pkg/db"
-	"github.com/TheTNB/panel/pkg/io"
-	"github.com/TheTNB/panel/pkg/nginx"
-	"github.com/TheTNB/panel/pkg/punycode"
-	"github.com/TheTNB/panel/pkg/shell"
-	"github.com/TheTNB/panel/pkg/systemctl"
-	"github.com/TheTNB/panel/pkg/types"
+	"github.com/acepanel/panel/internal/app"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/internal/http/request"
+	"github.com/acepanel/panel/pkg/acme"
+	"github.com/acepanel/panel/pkg/api"
+	"github.com/acepanel/panel/pkg/cert"
+	"github.com/acepanel/panel/pkg/embed"
+	"github.com/acepanel/panel/pkg/io"
+	"github.com/acepanel/panel/pkg/nginx"
+	"github.com/acepanel/panel/pkg/punycode"
+	"github.com/acepanel/panel/pkg/shell"
+	"github.com/acepanel/panel/pkg/systemctl"
+	"github.com/acepanel/panel/pkg/types"
 )
 
-type websiteRepo struct{}
+type websiteRepo struct {
+	t              *gotext.Locale
+	db             *gorm.DB
+	cache          biz.CacheRepo
+	database       biz.DatabaseRepo
+	databaseServer biz.DatabaseServerRepo
+	databaseUser   biz.DatabaseUserRepo
+	cert           biz.CertRepo
+	certAccount    biz.CertAccountRepo
+}
 
-func NewWebsiteRepo() biz.WebsiteRepo {
-	return &websiteRepo{}
+func NewWebsiteRepo(t *gotext.Locale, db *gorm.DB, cache biz.CacheRepo, database biz.DatabaseRepo, databaseServer biz.DatabaseServerRepo, databaseUser biz.DatabaseUserRepo, cert biz.CertRepo, certAccount biz.CertAccountRepo) biz.WebsiteRepo {
+	return &websiteRepo{
+		t:              t,
+		db:             db,
+		cache:          cache,
+		database:       database,
+		databaseServer: databaseServer,
+		databaseUser:   databaseUser,
+		cert:           cert,
+		certAccount:    certAccount,
+	}
+}
+
+func (r *websiteRepo) GetRewrites() (map[string]string, error) {
+	cached, err := r.cache.Get(biz.CacheKeyRewrites)
+	if err != nil {
+		return nil, err
+	}
+
+	var rewrites api.Rewrites
+	if err = json.Unmarshal([]byte(cached), &rewrites); err != nil {
+		return nil, err
+	}
+
+	rw := make(map[string]string)
+	for rewrite := range slices.Values(rewrites) {
+		rw[rewrite.Name] = rewrite.Content
+	}
+
+	return rw, nil
 }
 
 func (r *websiteRepo) UpdateDefaultConfig(req *request.WebsiteDefaultConfig) error {
@@ -46,7 +87,7 @@ func (r *websiteRepo) UpdateDefaultConfig(req *request.WebsiteDefaultConfig) err
 
 func (r *websiteRepo) Count() (int64, error) {
 	var count int64
-	if err := app.Orm.Model(&biz.Website{}).Count(&count).Error; err != nil {
+	if err := r.db.Model(&biz.Website{}).Count(&count).Error; err != nil {
 		return 0, err
 	}
 
@@ -55,7 +96,7 @@ func (r *websiteRepo) Count() (int64, error) {
 
 func (r *websiteRepo) Get(id uint) (*types.WebsiteSetting, error) {
 	website := new(biz.Website)
-	if err := app.Orm.Where("id", id).First(website).Error; err != nil {
+	if err := r.db.Where("id", id).First(website).Error; err != nil {
 		return nil, err
 	}
 	// 解析nginx配置
@@ -71,6 +112,7 @@ func (r *websiteRepo) Get(id uint) (*types.WebsiteSetting, error) {
 	setting := new(types.WebsiteSetting)
 	setting.ID = website.ID
 	setting.Name = website.Name
+	setting.Type = website.Type
 	setting.Path = website.Path
 	setting.HTTPS = website.Https
 	setting.PHP = p.GetPHP()
@@ -148,14 +190,20 @@ func (r *websiteRepo) Get(id uint) (*types.WebsiteSetting, error) {
 	rewrite, _ := io.Read(filepath.Join(app.Root, "server/vhost/rewrite", website.Name+".conf"))
 	setting.Rewrite = rewrite
 	// 访问日志
-	setting.Log = fmt.Sprintf("%s/wwwlogs/%s.log", app.Root, website.Name)
+	if setting.Log, err = p.GetAccessLog(); err != nil {
+		setting.Log = fmt.Sprintf("%s/wwwlogs/%s.log", app.Root, website.Name)
+	}
+	// 错误日志
+	if setting.ErrorLog, err = p.GetErrorLog(); err != nil {
+		setting.ErrorLog = fmt.Sprintf("%s/wwwlogs/%s.error.log", app.Root, website.Name)
+	}
 
 	return setting, err
 }
 
 func (r *websiteRepo) GetByName(name string) (*types.WebsiteSetting, error) {
 	website := new(biz.Website)
-	if err := app.Orm.Where("name", name).First(website).Error; err != nil {
+	if err := r.db.Where("name", name).First(website).Error; err != nil {
 		return nil, err
 	}
 
@@ -164,15 +212,24 @@ func (r *websiteRepo) GetByName(name string) (*types.WebsiteSetting, error) {
 }
 
 func (r *websiteRepo) List(page, limit uint) ([]*biz.Website, int64, error) {
-	var websites []*biz.Website
+	websites := make([]*biz.Website, 0)
 	var total int64
 
-	if err := app.Orm.Model(&biz.Website{}).Count(&total).Error; err != nil {
+	if err := r.db.Model(&biz.Website{}).Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
-	if err := app.Orm.Offset(int((page - 1) * limit)).Limit(int(limit)).Find(&websites).Error; err != nil {
+	if err := r.db.Offset(int((page - 1) * limit)).Limit(int(limit)).Find(&websites).Error; err != nil {
 		return nil, 0, err
+	}
+
+	// 取证书剩余有效时间
+	for _, website := range websites {
+		crt, _ := io.Read(filepath.Join(app.Root, "server/vhost/cert", website.Name+".pem"))
+		if decode, err := cert.ParseCert(crt); err == nil {
+			hours := time.Until(decode.NotAfter).Hours()
+			website.CertExpire = fmt.Sprintf("%.2f", hours/24)
+		}
 	}
 
 	return websites, total, nil
@@ -180,7 +237,8 @@ func (r *websiteRepo) List(page, limit uint) ([]*biz.Website, int64, error) {
 
 func (r *websiteRepo) Create(req *request.WebsiteCreate) (*biz.Website, error) {
 	// 初始化nginx配置
-	p, err := nginx.NewParser()
+	config := nginx.DefaultConf
+	p, err := nginx.NewParser(config)
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +273,7 @@ func (r *websiteRepo) Create(req *request.WebsiteCreate) (*biz.Website, error) {
 	}
 	includes = append(includes, filepath.Join(app.Root, "server/vhost/rewrite", req.Name+".conf"))
 	includes = append(includes, filepath.Join(app.Root, "server/vhost/acme", req.Name+".conf"))
-	comments = append(comments, []string{"# 伪静态规则"})
+	comments = append(comments, []string{r.t.Get("# Rewrite rule")})
 	comments = append(comments, []string{"# acme http-01"})
 	if err = p.SetIncludes(includes, comments); err != nil {
 		return nil, err
@@ -229,19 +287,35 @@ func (r *websiteRepo) Create(req *request.WebsiteCreate) (*biz.Website, error) {
 	}
 
 	// 初始化网站目录
-	if err = io.Mkdir(req.Path, 0755); err != nil {
+	if err = os.MkdirAll(req.Path, 0755); err != nil {
 		return nil, err
 	}
-	index, err := embed.WebsiteFS.ReadFile(filepath.Join("website", "index.html"))
+	var index []byte
+	switch app.Locale {
+	case "zh_CN":
+		index, err = embed.WebsiteFS.ReadFile(filepath.Join("website", "index_zh_CN.html"))
+	case "zh_TW":
+		index, err = embed.WebsiteFS.ReadFile(filepath.Join("website", "index_zh_TW.html"))
+	default:
+		index, err = embed.WebsiteFS.ReadFile(filepath.Join("website", "index.html"))
+	}
 	if err != nil {
-		return nil, fmt.Errorf("获取index模板文件失败: %w", err)
+		return nil, errors.New(r.t.Get("failed to get index template file: %v", err))
 	}
 	if err = io.Write(filepath.Join(req.Path, "index.html"), string(index), 0644); err != nil {
 		return nil, err
 	}
-	notFound, err := embed.WebsiteFS.ReadFile(filepath.Join("website", "404.html"))
+	var notFound []byte
+	switch app.Locale {
+	case "zh_CN":
+		notFound, err = embed.WebsiteFS.ReadFile(filepath.Join("website", "404_zh_CN.html"))
+	case "zh_TW":
+		notFound, err = embed.WebsiteFS.ReadFile(filepath.Join("website", "404_zh_TW.html"))
+	default:
+		notFound, err = embed.WebsiteFS.ReadFile(filepath.Join("website", "404.html"))
+	}
 	if err != nil {
-		return nil, fmt.Errorf("获取404模板文件失败: %w", err)
+		return nil, errors.New(r.t.Get("failed to get 404 template file: %v", err))
 	}
 	if err = io.Write(filepath.Join(req.Path, "404.html"), string(notFound), 0644); err != nil {
 		return nil, err
@@ -275,20 +349,24 @@ func (r *websiteRepo) Create(req *request.WebsiteCreate) (*biz.Website, error) {
 	// PHP 网站默认开启防跨站
 	if req.PHP > 0 {
 		userIni := filepath.Join(req.Path, ".user.ini")
-		_, _ = shell.Execf(`chattr -i '%s'`, userIni)
-		_ = io.Write(userIni, fmt.Sprintf("open_basedir=%s:/tmp/", req.Path), 0644)
+		if !io.Exists(userIni) {
+			if err = io.Write(userIni, fmt.Sprintf("open_basedir=%s:/tmp/", req.Path), 0644); err != nil {
+				return nil, err
+			}
+		}
 		_, _ = shell.Execf(`chattr +i '%s'`, userIni)
 	}
 
 	// 创建面板网站
 	w := &biz.Website{
 		Name:   req.Name,
+		Type:   "php", // TODO 支持网站类型
 		Status: true,
 		Path:   req.Path,
 		Https:  false,
 		Remark: req.Remark,
 	}
-	if err = app.Orm.Create(w).Error; err != nil {
+	if err = r.db.Create(w).Error; err != nil {
 		return nil, err
 	}
 
@@ -298,37 +376,21 @@ func (r *websiteRepo) Create(req *request.WebsiteCreate) (*biz.Website, error) {
 	}
 
 	// 创建数据库
-	rootPassword, err := NewSettingRepo().Get(biz.SettingKeyMySQLRootPassword)
-	if err == nil && req.DB && req.DBType == "mysql" {
-		mysql, err := db.NewMySQL("root", rootPassword, "/tmp/mysql.sock", "unix")
+	name := "local_" + req.DBType
+	if req.DB {
+		server, err := r.databaseServer.GetByName(name)
 		if err != nil {
-			return nil, err
+			return nil, errors.New(r.t.Get("can't find %s database server, please add it first", name))
 		}
-		if err = mysql.DatabaseCreate(req.DBName); err != nil {
-			return nil, err
-		}
-		if err = mysql.UserCreate(req.DBUser, req.DBPassword); err != nil {
-			return nil, err
-		}
-		if err = mysql.PrivilegesGrant(req.DBUser, req.DBName); err != nil {
-			return nil, err
-		}
-	}
-	if req.DB && req.DBType == "postgresql" {
-		postgres, err := db.NewPostgres("postgres", "", "127.0.0.1", 5432, fmt.Sprintf("%s/server/postgresql/data/pg_hba.conf", app.Root))
-		if err != nil {
-			return nil, err
-		}
-		if err = postgres.DatabaseCreate(req.DBName); err != nil {
-			return nil, err
-		}
-		if err = postgres.UserCreate(req.DBUser, req.DBPassword); err != nil {
-			return nil, err
-		}
-		if err = postgres.PrivilegesGrant(req.DBUser, req.DBName); err != nil {
-			return nil, err
-		}
-		if err = postgres.HostAdd(req.DBName, req.DBUser, "127.0.0.1/32"); err != nil {
+		if err = r.database.Create(&request.DatabaseCreate{
+			ServerID:   server.ID,
+			Name:       req.DBName,
+			CreateUser: true,
+			Username:   req.DBUser,
+			Password:   req.DBPassword,
+			Host:       "localhost",
+			Comment:    fmt.Sprintf("website %s", req.Name),
+		}); err != nil {
 			return nil, err
 		}
 	}
@@ -338,11 +400,8 @@ func (r *websiteRepo) Create(req *request.WebsiteCreate) (*biz.Website, error) {
 
 func (r *websiteRepo) Update(req *request.WebsiteUpdate) error {
 	website := new(biz.Website)
-	if err := app.Orm.Where("id", req.ID).First(website).Error; err != nil {
+	if err := r.db.Where("id", req.ID).First(website).Error; err != nil {
 		return err
-	}
-	if !website.Status {
-		return errors.New("网站已停用，请先启用")
 	}
 
 	// 解析nginx配置
@@ -399,14 +458,14 @@ func (r *websiteRepo) Update(req *request.WebsiteUpdate) error {
 	}
 	// 运行目录
 	if !io.Exists(req.Root) {
-		return errors.New("运行目录不存在")
+		return errors.New(r.t.Get("runtime directory does not exist"))
 	}
 	if err = p.SetRoot(req.Root); err != nil {
 		return err
 	}
 	// 运行目录
 	if !io.Exists(req.Path) {
-		return errors.New("网站目录不存在")
+		return errors.New(r.t.Get("website directory does not exist"))
 	}
 	website.Path = req.Path
 	// PHP
@@ -424,6 +483,12 @@ func (r *websiteRepo) Update(req *request.WebsiteUpdate) error {
 	}
 	website.Https = req.HTTPS
 	if req.HTTPS {
+		if _, err = cert.ParseCert(req.SSLCertificate); err != nil {
+			return errors.New(r.t.Get("failed to parse certificate: %v", err))
+		}
+		if _, err = cert.ParseKey(req.SSLCertificateKey); err != nil {
+			return errors.New(r.t.Get("failed to parse private key: %v", err))
+		}
 		if err = p.SetHTTPS(certPath, keyPath); err != nil {
 			return err
 		}
@@ -465,14 +530,15 @@ func (r *websiteRepo) Update(req *request.WebsiteUpdate) error {
 	}
 	userIni := filepath.Join(req.Root, ".user.ini")
 	if req.OpenBasedir {
-		_, _ = shell.Execf(`chattr -i '%s'`, userIni)
-		if err = io.Write(userIni, fmt.Sprintf("open_basedir=%s:/tmp/", req.Root), 0644); err != nil {
-			return err
+		if !io.Exists(userIni) || req.Root != website.Path {
+			// 之前没有开启，或者修改了运行目录，重新写入
+			if err = io.Write(userIni, fmt.Sprintf("open_basedir=%s:%s:/tmp/", req.Root, req.Path), 0644); err != nil {
+				return err
+			}
 		}
 		_, _ = shell.Execf(`chattr +i '%s'`, userIni)
 	} else {
 		if io.Exists(userIni) {
-			_, _ = shell.Execf(`chattr -i '%s'`, userIni)
 			if err = io.Remove(userIni); err != nil {
 				return err
 			}
@@ -486,7 +552,7 @@ func (r *websiteRepo) Update(req *request.WebsiteUpdate) error {
 		return err
 	}
 
-	if err = app.Orm.Save(website).Error; err != nil {
+	if err = r.db.Save(website).Error; err != nil {
 		return err
 	}
 
@@ -500,11 +566,11 @@ func (r *websiteRepo) Update(req *request.WebsiteUpdate) error {
 
 func (r *websiteRepo) Delete(req *request.WebsiteDelete) error {
 	website := new(biz.Website)
-	if err := app.Orm.Preload("Cert").Where("id", req.ID).First(website).Error; err != nil {
+	if err := r.db.Preload("Cert").Where("id", req.ID).First(website).Error; err != nil {
 		return err
 	}
 	if website.Cert != nil {
-		return errors.New("网站" + website.Name + "已绑定证书，请先删除证书")
+		return errors.New(r.t.Get("website %s has bound certificates, please delete the certificate first", website.Name))
 	}
 
 	_ = io.Remove(filepath.Join(app.Root, "server/vhost", website.Name+".conf"))
@@ -519,20 +585,17 @@ func (r *websiteRepo) Delete(req *request.WebsiteDelete) error {
 		_ = io.Remove(website.Path)
 	}
 	if req.DB {
-		rootPassword, err := NewSettingRepo().Get(biz.SettingKeyMySQLRootPassword)
-		if err != nil {
-			return err
+		if mysql, err := r.databaseServer.GetByName("local_mysql"); err == nil {
+			_ = r.databaseUser.DeleteByNames(mysql.ID, []string{website.Name})
+			_ = r.database.Delete(mysql.ID, website.Name)
 		}
-		mysql, err := db.NewMySQL("root", rootPassword, "/tmp/mysql.sock", "unix")
-		if err == nil {
-			_ = mysql.DatabaseDrop(website.Name)
-			_ = mysql.UserDrop(website.Name)
+		if postgres, err := r.databaseServer.GetByName("local_postgresql"); err == nil {
+			_ = r.databaseUser.DeleteByNames(postgres.ID, []string{website.Name})
+			_ = r.database.Delete(postgres.ID, website.Name)
 		}
-		_, _ = shell.Execf(`echo "DROP DATABASE IF EXISTS '%s';" | su - postgres -c "psql"`, website.Name)
-		_, _ = shell.Execf(`echo "DROP USER IF EXISTS '%s';" | su - postgres -c "psql"`, website.Name)
 	}
 
-	if err := app.Orm.Delete(website).Error; err != nil {
+	if err := r.db.Delete(website).Error; err != nil {
 		return err
 	}
 
@@ -546,32 +609,33 @@ func (r *websiteRepo) Delete(req *request.WebsiteDelete) error {
 
 func (r *websiteRepo) ClearLog(id uint) error {
 	website := new(biz.Website)
-	if err := app.Orm.Where("id", id).First(website).Error; err != nil {
+	if err := r.db.Where("id", id).First(website).Error; err != nil {
 		return err
 	}
 
-	_, err := shell.Execf(`echo "" > %s/wwwlogs/%s.log`, app.Root, website.Name)
+	_, err := shell.Execf(`cat /dev/null > %s/wwwlogs/%s.log`, app.Root, website.Name)
 	return err
 }
 
 func (r *websiteRepo) UpdateRemark(id uint, remark string) error {
 	website := new(biz.Website)
-	if err := app.Orm.Where("id", id).First(website).Error; err != nil {
+	if err := r.db.Where("id", id).First(website).Error; err != nil {
 		return err
 	}
 
 	website.Remark = remark
-	return app.Orm.Save(website).Error
+	return r.db.Save(website).Error
 }
 
 func (r *websiteRepo) ResetConfig(id uint) error {
 	website := new(biz.Website)
-	if err := app.Orm.Where("id", id).First(&website).Error; err != nil {
+	if err := r.db.Where("id", id).First(&website).Error; err != nil {
 		return err
 	}
 
 	// 初始化nginx配置
-	p, err := nginx.NewParser()
+	config := nginx.DefaultConf
+	p, err := nginx.NewParser(config)
 	if err != nil {
 		return err
 	}
@@ -586,7 +650,7 @@ func (r *websiteRepo) ResetConfig(id uint) error {
 	}
 	includes = append(includes, filepath.Join(app.Root, "server/vhost/rewrite", website.Name+".conf"))
 	includes = append(includes, filepath.Join(app.Root, "server/vhost/acme", website.Name+".conf"))
-	comments = append(comments, []string{"# 伪静态规则"})
+	comments = append(comments, []string{r.t.Get("# Rewrite rule")})
 	comments = append(comments, []string{"# acme http-01"})
 	if err = p.SetIncludes(includes, comments); err != nil {
 		return err
@@ -611,7 +675,7 @@ func (r *websiteRepo) ResetConfig(id uint) error {
 
 	website.Status = true
 	website.Https = false
-	if err = app.Orm.Save(website).Error; err != nil {
+	if err = r.db.Save(website).Error; err != nil {
 		return err
 	}
 
@@ -625,7 +689,7 @@ func (r *websiteRepo) ResetConfig(id uint) error {
 
 func (r *websiteRepo) UpdateStatus(id uint, status bool) error {
 	website := new(biz.Website)
-	if err := app.Orm.Where("id", id).First(&website).Error; err != nil {
+	if err := r.db.Where("id", id).First(&website).Error; err != nil {
 		return err
 	}
 
@@ -652,23 +716,23 @@ func (r *websiteRepo) UpdateStatus(id uint, status bool) error {
 
 	if status {
 		if len(rootComment) == 0 {
-			return fmt.Errorf("未找到运行目录注释")
+			return errors.New(r.t.Get("runtime directory comment not found"))
 		}
 		if len(rootComment) != 1 {
-			return fmt.Errorf("运行目录注释数量不正确，预期1个，实际%d个", len(rootComment))
+			return errors.New(r.t.Get("runtime directory comment count is incorrect, expected 1, actual %d", len(rootComment)))
 		}
 		rootComment[0] = strings.TrimPrefix(rootComment[0], "# ")
 		if !io.Exists(rootComment[0]) {
-			return fmt.Errorf("运行目录不存在")
+			return errors.New(r.t.Get("runtime directory does not exist"))
 		}
 		if err = p.SetRoot(rootComment[0]); err != nil {
 			return err
 		}
 		if len(indexComment) == 0 {
-			return fmt.Errorf("未找到默认文档注释")
+			return errors.New(r.t.Get("default document comment not found"))
 		}
 		if len(indexComment) != 1 {
-			return fmt.Errorf("默认文档注释数量不正确，预期1个，实际%d个", len(indexComment))
+			return errors.New(r.t.Get("default document comment count is incorrect, expected 1, actual %d", len(indexComment)))
 		}
 		indexComment[0] = strings.TrimPrefix(indexComment[0], "# ")
 		if err = p.SetIndex(strings.Fields(indexComment[0])); err != nil {
@@ -688,7 +752,7 @@ func (r *websiteRepo) UpdateStatus(id uint, status bool) error {
 	}
 
 	website.Status = status
-	if err = app.Orm.Save(website).Error; err != nil {
+	if err = r.db.Save(website).Error; err != nil {
 		return err
 	}
 
@@ -700,43 +764,78 @@ func (r *websiteRepo) UpdateStatus(id uint, status bool) error {
 	return nil
 }
 
+func (r *websiteRepo) UpdateCert(req *request.WebsiteUpdateCert) error {
+	website := new(biz.Website)
+	if err := r.db.Where("name", req.Name).First(&website).Error; err != nil {
+		return err
+	}
+
+	if _, err := cert.ParseCert(req.Cert); err != nil {
+		return errors.New(r.t.Get("failed to parse certificate: %v", err))
+	}
+	if _, err := cert.ParseKey(req.Key); err != nil {
+		return errors.New(r.t.Get("failed to parse private key: %v", err))
+	}
+
+	certPath := filepath.Join(app.Root, "server/vhost/cert", website.Name+".pem")
+	keyPath := filepath.Join(app.Root, "server/vhost/cert", website.Name+".key")
+	if err := io.Write(certPath, req.Cert, 0644); err != nil {
+		return err
+	}
+	if err := io.Write(keyPath, req.Key, 0644); err != nil {
+		return err
+	}
+
+	if website.Https {
+		if err := systemctl.Reload("nginx"); err != nil {
+			_, err = shell.Execf("nginx -t")
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (r *websiteRepo) ObtainCert(ctx context.Context, id uint) error {
 	website, err := r.Get(id)
 	if err != nil {
 		return err
 	}
 	if slices.Contains(website.Domains, "*") {
-		return errors.New("cannot one-key obtain wildcard certificate")
+		return errors.New(r.t.Get("not support one-key obtain wildcard certificate, please use Cert menu to obtain it with DNS method"))
 	}
 
-	account, err := NewCertAccountRepo().GetDefault(cast.ToUint(ctx.Value("user_id")))
+	account, err := r.certAccount.GetDefault(cast.ToUint(ctx.Value("user_id")))
 	if err != nil {
 		return err
 	}
 
-	cRepo := NewCertRepo()
-	newCert, err := cRepo.GetByWebsite(website.ID)
+	newCert, err := r.cert.GetByWebsite(website.ID)
 	if err != nil {
-		newCert, err = cRepo.Create(&request.CertCreate{
-			Type:      string(acme.KeyEC256),
-			Domains:   website.Domains,
-			AutoRenew: true,
-			AccountID: account.ID,
-			WebsiteID: website.ID,
-		})
-		if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			newCert, err = r.cert.Create(&request.CertCreate{
+				Type:      string(acme.KeyEC256),
+				Domains:   website.Domains,
+				AutoRenew: true,
+				AccountID: account.ID,
+				WebsiteID: website.ID,
+			})
+			if err != nil {
+				return err
+			}
+		} else {
 			return err
 		}
 	}
 	newCert.Domains = website.Domains
-	if err = app.Orm.Save(newCert).Error; err != nil {
+	if err = r.db.Save(newCert).Error; err != nil {
 		return err
 	}
 
-	_, err = cRepo.ObtainAuto(newCert.ID)
+	_, err = r.cert.ObtainAuto(newCert.ID)
 	if err != nil {
 		return err
 	}
 
-	return cRepo.Deploy(newCert.ID, website.ID)
+	return r.cert.Deploy(newCert.ID, website.ID)
 }

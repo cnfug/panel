@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/go-rat/utils/copier"
 	"github.com/go-resty/resty/v2"
+	"github.com/libtnb/utils/copier"
 	"github.com/shirou/gopsutil/host"
 )
 
@@ -20,12 +20,12 @@ type Response struct {
 	Data    any    `json:"data"`
 }
 
-func NewAPI(panelVersion string, url ...string) *API {
+func NewAPI(panelVersion, locale string, url ...string) *API {
 	if len(panelVersion) == 0 {
 		panic("panel version is required")
 	}
 	if len(url) == 0 {
-		url = append(url, "https://panel.haozi.net/api")
+		url = append(url, "https://api.acepanel.net")
 	}
 
 	hostInfo, err := host.Info()
@@ -36,7 +36,13 @@ func NewAPI(panelVersion string, url ...string) *API {
 	client := resty.New()
 	client.SetTimeout(10 * time.Second)
 	client.SetBaseURL(url[0])
-	client.SetHeader("User-Agent", fmt.Sprintf("rat-panel/%s %s/%s", panelVersion, hostInfo.Platform, hostInfo.PlatformVersion))
+	client.SetHeader(
+		"User-Agent",
+		fmt.Sprintf("acepanel/%s/%s %s/%s arch/%s kernel/%s",
+			panelVersion, locale, hostInfo.Platform, hostInfo.PlatformVersion, hostInfo.KernelArch, hostInfo.KernelVersion,
+		),
+	)
+	client.SetQueryParam("locale", locale)
 
 	return &API{
 		panelVersion: panelVersion,

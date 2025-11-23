@@ -2,7 +2,7 @@
   "isMobile": false,
   "darkMode": false,
   "sider": {
-    "width": 160,
+    "width": 180,
     "collapsedWidth": 64,
     "collapsed": false
   },
@@ -14,13 +14,6 @@
     "visible": true,
     "height": 60
   },
-  "primaryColor": "#00BFFF",
-  "otherColor": {
-    "info": "#2080F0",
-    "success": "#18A058",
-    "warning": "#F0A020",
-    "error": "#D03050"
-  },
   "locale": "zh_CN",
-  "name": "耗子面板"
+  "name": "AcePanel"
 }

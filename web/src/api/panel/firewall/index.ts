@@ -1,36 +1,29 @@
-import type { AxiosResponse } from 'axios'
-
-import { request } from '@/utils'
+import { http } from '@/utils'
 
 export default {
   // 获取防火墙状态
-  status: (): Promise<AxiosResponse<any>> => request.get('/firewall/status'),
+  status: (): any => http.Get('/firewall/status'),
   // 设置防火墙状态
-  updateStatus: (status: boolean): Promise<AxiosResponse<any>> =>
-    request.post('/firewall/status', { status }),
+  updateStatus: (status: boolean): any => http.Post('/firewall/status', { status }),
   // 获取防火墙规则
-  rules: (page: number, limit: number): Promise<AxiosResponse<any>> =>
-    request.get('/firewall/rule', { params: { page, limit } }),
+  rules: (page: number, limit: number): any =>
+    http.Get('/firewall/rule', { params: { page, limit } }),
   // 创建防火墙规则
-  createRule: (rule: any): Promise<AxiosResponse<any>> => request.post('/firewall/rule', rule),
+  createRule: (rule: any): any => http.Post('/firewall/rule', rule),
   // 删除防火墙规则
-  deleteRule: (rule: any): Promise<AxiosResponse<any>> =>
-    request.delete('/firewall/rule', { data: rule }),
+  deleteRule: (rule: any): any => http.Delete('/firewall/rule', rule),
   // 获取防火墙IP规则
-  ipRules: (page: number, limit: number): Promise<AxiosResponse<any>> =>
-    request.get('/firewall/ipRule', { params: { page, limit } }),
+  ipRules: (page: number, limit: number): any =>
+    http.Get('/firewall/ip_rule', { params: { page, limit } }),
   // 创建防火墙IP规则
-  createIpRule: (rule: any): Promise<AxiosResponse<any>> => request.post('/firewall/ipRule', rule),
+  createIpRule: (rule: any): any => http.Post('/firewall/ip_rule', rule),
   // 删除防火墙IP规则
-  deleteIpRule: (rule: any): Promise<AxiosResponse<any>> =>
-    request.delete('/firewall/ipRule', { data: rule }),
+  deleteIpRule: (rule: any): any => http.Delete('/firewall/ip_rule', rule),
   // 获取防火墙转发规则
-  forwards: (page: number, limit: number): Promise<AxiosResponse<any>> =>
-    request.get('/firewall/forward', { params: { page, limit } }),
+  forwards: (page: number, limit: number): any =>
+    http.Get('/firewall/forward', { params: { page, limit } }),
   // 创建防火墙转发规则
-  createForward: (rule: any): Promise<AxiosResponse<any>> =>
-    request.post('/firewall/forward', rule),
+  createForward: (rule: any): any => http.Post('/firewall/forward', rule),
   // 删除防火墙转发规则
-  deleteForward: (rule: any): Promise<AxiosResponse<any>> =>
-    request.delete('/firewall/forward', { data: rule })
+  deleteForward: (rule: any): any => http.Delete('/firewall/forward', rule)
 }

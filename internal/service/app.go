@@ -2,24 +2,29 @@ package service
 
 import (
 	"net/http"
+	"strings"
 
-	"github.com/go-rat/chix"
+	"github.com/leonelquinteros/gotext"
+	"github.com/libtnb/chix"
 
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/internal/data"
-	"github.com/TheTNB/panel/internal/http/request"
-	"github.com/TheTNB/panel/pkg/types"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/internal/http/request"
+	"github.com/acepanel/panel/pkg/types"
 )
 
 type AppService struct {
+	t           *gotext.Locale
 	appRepo     biz.AppRepo
+	cacheRepo   biz.CacheRepo
 	settingRepo biz.SettingRepo
 }
 
-func NewAppService() *AppService {
+func NewAppService(t *gotext.Locale, app biz.AppRepo, cache biz.CacheRepo, setting biz.SettingRepo) *AppService {
 	return &AppService{
-		appRepo:     data.NewAppRepo(),
-		settingRepo: data.NewSettingRepo(),
+		t:           t,
+		appRepo:     app,
+		cacheRepo:   cache,
+		settingRepo: setting,
 	}
 }
 
@@ -46,29 +51,36 @@ func (s *AppService) List(w http.ResponseWriter, r *http.Request) {
 			updateExist = s.appRepo.UpdateExist(item.Slug)
 			show = installedAppMap[item.Slug].Show
 		}
-		apps = append(apps, types.AppCenter{
-			Icon:        item.Icon,
-			Name:        item.Name,
-			Description: item.Description,
-			Slug:        item.Slug,
-			Channels: []struct {
-				Slug      string `json:"slug"`
-				Name      string `json:"name"`
-				Panel     string `json:"panel"`
-				Install   string `json:"-"`
-				Uninstall string `json:"-"`
-				Update    string `json:"-"`
-				Subs      []struct {
-					Log     string `json:"log"`
-					Version string `json:"version"`
-				} `json:"subs"`
-			}(item.Channels),
+
+		app := types.AppCenter{
+			Icon:             item.Icon,
+			Name:             item.Name,
+			Description:      item.Description,
+			Slug:             item.Slug,
 			Installed:        installed,
 			InstalledChannel: installedChannel,
 			InstalledVersion: installedVersion,
 			UpdateExist:      updateExist,
 			Show:             show,
-		})
+		}
+
+		for _, c := range item.Channels {
+			app.Channels = append(app.Channels, struct {
+				Slug    string `json:"slug"`
+				Name    string `json:"name"`
+				Panel   string `json:"panel"`
+				Version string `json:"version"`
+				Log     string `json:"log"`
+			}{
+				Slug:    c.Slug,
+				Name:    c.Name,
+				Panel:   c.Panel,
+				Version: c.Version,
+				Log:     c.Log,
+			})
+		}
+
+		apps = append(apps, app)
 	}
 
 	paged, total := Paginate(r, apps)
@@ -140,37 +152,36 @@ func (s *AppService) UpdateShow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *AppService) IsInstalled(w http.ResponseWriter, r *http.Request) {
-	req, err := Bind[request.AppSlug](r)
+	req, err := Bind[request.AppSlugs](r)
 	if err != nil {
 		Error(w, http.StatusUnprocessableEntity, "%v", err)
 		return
 	}
 
-	app, err := s.appRepo.Get(req.Slug)
-	if err != nil {
-		Error(w, http.StatusInternalServerError, "%v", err)
-		return
+	flag := false
+	slugs := strings.Split(req.Slugs, ",")
+	for _, item := range slugs {
+		installed, err := s.appRepo.IsInstalled(item)
+		if err != nil {
+			Error(w, http.StatusInternalServerError, "%v", err)
+			return
+		}
+		if installed {
+			flag = true
+			break
+		}
 	}
 
-	installed, err := s.appRepo.IsInstalled(req.Slug)
-	if err != nil {
-		Error(w, http.StatusInternalServerError, "%v", err)
-		return
-	}
-
-	Success(w, chix.M{
-		"name":      app.Name,
-		"installed": installed,
-	})
+	Success(w, flag)
 }
 
 func (s *AppService) UpdateCache(w http.ResponseWriter, r *http.Request) {
 	if offline, _ := s.settingRepo.GetBool(biz.SettingKeyOfflineMode); offline {
-		Error(w, http.StatusForbidden, "离线模式下无法更新应用列表缓存")
+		Error(w, http.StatusForbidden, s.t.Get("Unable to update app list cache in offline mode"))
 		return
 	}
 
-	if err := s.appRepo.UpdateCache(); err != nil {
+	if err := s.cacheRepo.UpdateApps(); err != nil {
 		Error(w, http.StatusInternalServerError, "%v", err)
 		return
 	}

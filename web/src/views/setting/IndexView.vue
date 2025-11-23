@@ -3,23 +3,90 @@ defineOptions({
   name: 'setting-index'
 })
 
-import SettingBase from '@/views/setting/SettingBase.vue'
-import SettingHttps from '@/views/setting/SettingHttps.vue'
+import { NButton } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
+import setting from '@/api/panel/setting'
+import { useThemeStore } from '@/store'
+import CreateModal from '@/views/setting/CreateModal.vue'
+import SettingBase from '@/views/setting/SettingBase.vue'
+import SettingSafe from '@/views/setting/SettingSafe.vue'
+import SettingUser from '@/views/setting/SettingUser.vue'
+
+const { $gettext } = useGettext()
+const themeStore = useThemeStore()
 const currentTab = ref('base')
+const createModal = ref(false)
+
+const { data: model } = useRequest(setting.list, {
+  initialData: {
+    name: '',
+    channel: 'stable',
+    locale: 'en',
+    port: 8888,
+    entrance: '',
+    offline_mode: false,
+    two_fa: false,
+    lifetime: 0,
+    ip_header: '',
+    bind_domain: [],
+    bind_ip: [],
+    bind_ua: [],
+    website_path: '',
+    backup_path: '',
+    https: false,
+    cert: '',
+    key: ''
+  }
+})
+
+const handleSave = () => {
+  if (model.value.entrance.trim() === '') {
+    model.value.entrance = '/'
+  }
+  useRequest(setting.update(model.value)).onSuccess(() => {
+    window.$message.success($gettext('Saved successfully'))
+    if (model.value.locale !== themeStore.locale) {
+      themeStore.setLocale(model.value.locale)
+      window.$message.info($gettext('Panel is restarting, page will refresh in 3 seconds'))
+      setTimeout(() => {
+        window.location.reload()
+      }, 3000)
+    }
+  })
+}
+
+const handleCreate = () => {
+  createModal.value = true
+}
 </script>
 
 <template>
-  <common-page show-footer>
-    <n-tabs v-model:value="currentTab" type="line" animated>
-      <n-tab-pane name="base" tab="基本">
-        <setting-base />
-      </n-tab-pane>
-      <n-tab-pane name="https" tab="HTTPS">
-        <setting-https />
-      </n-tab-pane>
-    </n-tabs>
+  <common-page show-header show-footer>
+    <template #tabbar>
+      <n-tabs v-model:value="currentTab" animated>
+        <n-tab name="base" :tab="$gettext('Basic')" />
+        <n-tab name="safe" :tab="$gettext('Safe')" />
+        <n-tab name="user" :tab="$gettext('User')" />
+      </n-tabs>
+    </template>
+    <n-flex vertical>
+      <n-flex>
+        <n-button v-if="currentTab == 'user'" type="primary" @click="handleCreate">
+          {{ $gettext('Create User') }}
+        </n-button>
+      </n-flex>
+      <setting-base v-if="currentTab === 'base'" v-model:model="model" />
+      <setting-safe v-if="currentTab === 'safe'" v-model:model="model" />
+      <setting-user v-if="currentTab === 'user'" />
+      <n-flex>
+        <n-button v-if="currentTab != 'user'" type="primary" @click="handleSave">
+          {{ $gettext('Save') }}
+        </n-button>
+      </n-flex>
+    </n-flex>
   </common-page>
+  <create-modal v-model:show="createModal" />
 </template>
 
 <style scoped lang="scss"></style>

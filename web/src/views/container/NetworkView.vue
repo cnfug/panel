@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { NButton, NDataTable, NFlex, NInput, NPopconfirm, NTag } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
 import container from '@/api/panel/container'
 import { formatDateTime } from '@/utils'
-import type { NetworkList } from '@/views/container/types'
+
+const { $gettext } = useGettext()
 
 const createModel = ref({
   name: '',
@@ -34,40 +36,34 @@ const options = [
 ]
 
 const createModal = ref(false)
-const loading = ref(false)
 
-const data = ref<NetworkList[]>([] as NetworkList[])
 const selectedRowKeys = ref<any>([])
-
-const onChecked = (rowKeys: any) => {
-  selectedRowKeys.value = rowKeys
-}
 
 const columns: any = [
   { type: 'selection', fixed: 'left' },
   {
-    title: '名称',
+    title: $gettext('Name'),
     key: 'name',
     minWidth: 150,
     resizable: true,
     ellipsis: { tooltip: true }
   },
   {
-    title: '驱动',
+    title: $gettext('Driver'),
     key: 'driver',
     width: 100,
     resizable: true,
     ellipsis: { tooltip: true }
   },
   {
-    title: '范围',
+    title: $gettext('Scope'),
     key: 'scope',
     width: 100,
     resizable: true,
     ellipsis: { tooltip: true }
   },
   {
-    title: '子网',
+    title: $gettext('Subnet'),
     key: 'subnet',
     minWidth: 150,
     resizable: true,
@@ -84,7 +80,7 @@ const columns: any = [
     }
   },
   {
-    title: '网关',
+    title: $gettext('Gateway'),
     key: 'gateway',
     width: 150,
     resizable: true,
@@ -101,7 +97,7 @@ const columns: any = [
     }
   },
   {
-    title: '创建时间',
+    title: $gettext('Creation Time'),
     key: 'created_at',
     width: 200,
     resizable: true,
@@ -110,10 +106,9 @@ const columns: any = [
     }
   },
   {
-    title: '操作',
+    title: $gettext('Actions'),
     key: 'actions',
     width: 120,
-    align: 'center',
     hideInExcel: true,
     render(row: any) {
       return [
@@ -126,7 +121,7 @@ const columns: any = [
           },
           {
             default: () => {
-              return '确定删除吗？'
+              return $gettext('Are you sure you want to delete?')
             },
             trigger: () => {
               return h(
@@ -136,7 +131,7 @@ const columns: any = [
                   type: 'error'
                 },
                 {
-                  default: () => '删除'
+                  default: () => $gettext('Delete')
                 }
               )
             }
@@ -147,107 +142,94 @@ const columns: any = [
   }
 ]
 
-const pagination = reactive({
-  page: 1,
-  pageCount: 1,
-  pageSize: 20,
-  itemCount: 0,
-  showQuickJumper: true,
-  showSizePicker: true,
-  pageSizes: [20, 50, 100, 200]
-})
+const { loading, data, page, total, pageSize, pageCount, refresh } = usePagination(
+  (page, pageSize) => container.networkList(page, pageSize),
+  {
+    initialData: { total: 0, list: [] },
+    initialPageSize: 20,
+    total: (res: any) => res.total,
+    data: (res: any) => res.items
+  }
+)
 
-const onPageChange = (page: number) => {
-  pagination.page = page
-  getNetworkList(page, pagination.pageSize).then((res) => {
-    data.value = res.items
-    pagination.itemCount = res.total
-    pagination.pageCount = res.total / pagination.pageSize + 1
-  })
-}
-
-const onPageSizeChange = (pageSize: number) => {
-  pagination.pageSize = pageSize
-  onPageChange(1)
-}
-
-const getNetworkList = async (page: number, pageSize: number) => {
-  const { data } = await container.networkList(page, pageSize)
-  return data
-}
-
-const handleDelete = async (row: any) => {
-  container.networkRemove(row.id).then(() => {
-    window.$message.success('删除成功')
-    onPageChange(pagination.page)
+const handleDelete = (row: any) => {
+  useRequest(container.networkRemove(row.id)).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Delete successful'))
   })
 }
 
 const handlePrune = () => {
-  container.networkPrune().then(() => {
-    window.$message.success('清理成功')
-    onPageChange(pagination.page)
+  useRequest(container.networkPrune()).onSuccess(() => {
+    refresh()
+    window.$message.success($gettext('Cleanup successful'))
   })
 }
 
 const handleCreate = () => {
   loading.value = true
-  container
-    .networkCreate(createModel.value)
-    .then(() => {
-      window.$message.success('创建成功')
-      onPageChange(pagination.page)
+  useRequest(container.networkCreate(createModel.value))
+    .onSuccess(() => {
+      refresh()
+      window.$message.success($gettext('Created successfully'))
     })
-    .finally(() => {
+    .onComplete(() => {
       loading.value = false
       createModal.value = false
     })
 }
 
 onMounted(() => {
-  onPageChange(pagination.page)
+  refresh()
 })
 </script>
 
 <template>
-  <n-space vertical size="large">
-    <n-card rounded-10>
-      <n-space>
-        <n-button type="primary" @click="createModal = true">创建网络</n-button>
-        <n-button type="primary" @click="handlePrune" ghost>清理网络</n-button>
-      </n-space>
-    </n-card>
-    <n-card rounded-10>
-      <n-data-table
-        striped
-        remote
-        :scroll-x="1000"
-        :data="data"
-        :columns="columns"
-        :row-key="(row: any) => row.id"
-        :pagination="pagination"
-        :bordered="false"
-        :loading="false"
-        @update:page="onPageChange"
-        @update:page-size="onPageSizeChange"
-        @update:checked-row-keys="onChecked"
-      />
-    </n-card>
-  </n-space>
+  <n-flex vertical :size="20">
+    <n-flex>
+      <n-button type="primary" @click="createModal = true">{{
+        $gettext('Create Network')
+      }}</n-button>
+      <n-button type="primary" @click="handlePrune" ghost>{{
+        $gettext('Cleanup Networks')
+      }}</n-button>
+    </n-flex>
+    <n-data-table
+      striped
+      remote
+      :loading="loading"
+      :scroll-x="1000"
+      :data="data"
+      :columns="columns"
+      :row-key="(row: any) => row.id"
+      v-model:checked-row-keys="selectedRowKeys"
+      v-model:page="page"
+      v-model:pageSize="pageSize"
+      :pagination="{
+        page: page,
+        pageCount: pageCount,
+        pageSize: pageSize,
+        itemCount: total,
+        showQuickJumper: true,
+        showSizePicker: true,
+        pageSizes: [20, 50, 100, 200]
+      }"
+    />
+  </n-flex>
   <n-modal
     v-model:show="createModal"
     preset="card"
-    title="创建网络"
+    :title="$gettext('Create Network')"
     style="width: 60vw"
     size="huge"
     :bordered="false"
     :segmented="false"
   >
     <n-form :model="createModel">
-      <n-form-item path="name" label="网络名">
+      <n-form-item path="name" :label="$gettext('Network Name')">
         <n-input v-model:value="createModel.name" type="text" @keydown.enter.prevent />
       </n-form-item>
-      <n-form-item path="driver" label="驱动">
+      <n-form-item path="driver" :label="$gettext('Driver')">
         <n-select
           :options="options"
           v-model:value="createModel.driver"
@@ -259,76 +241,76 @@ onMounted(() => {
       <n-form-item path="ipv4" label="IPV4">
         <n-switch v-model:value="createModel.ipv4.enabled" />
       </n-form-item>
-      <n-form-item v-if="createModel.ipv4.enabled" path="subnet" label="子网">
+      <n-form-item v-if="createModel.ipv4.enabled" path="subnet" :label="$gettext('Subnet')">
         <n-input
           v-model:value="createModel.ipv4.subnet"
           type="text"
           @keydown.enter.prevent
-          placeholder="172.16.10.0/24"
+          :placeholder="$gettext('172.16.10.0/24')"
         />
       </n-form-item>
-      <n-form-item v-if="createModel.ipv4.enabled" path="gateway" label="网关">
+      <n-form-item v-if="createModel.ipv4.enabled" path="gateway" :label="$gettext('Gateway')">
         <n-input
           v-model:value="createModel.ipv4.gateway"
           type="text"
           @keydown.enter.prevent
-          placeholder="172.16.10.254"
+          :placeholder="$gettext('172.16.10.254')"
         />
       </n-form-item>
-      <n-form-item v-if="createModel.ipv4.enabled" path="ip_range" label="IP范围">
+      <n-form-item v-if="createModel.ipv4.enabled" path="ip_range" :label="$gettext('IP Range')">
         <n-input
           v-model:value="createModel.ipv4.ip_range"
           type="text"
           @keydown.enter.prevent
-          placeholder="172.16.10.0/24"
+          :placeholder="$gettext('172.16.10.0/24')"
         />
       </n-form-item>
       <n-form-item path="ipv6" label="IPV6">
         <n-switch v-model:value="createModel.ipv6.enabled" />
       </n-form-item>
-      <n-form-item v-if="createModel.ipv6.enabled" path="subnet" label="子网">
+      <n-form-item v-if="createModel.ipv6.enabled" path="subnet" :label="$gettext('Subnet')">
         <n-input
           v-model:value="createModel.ipv6.subnet"
           type="text"
           @keydown.enter.prevent
-          placeholder="2408:400e::/48"
+          :placeholder="$gettext('2408:400e::/48')"
         />
       </n-form-item>
-      <n-form-item v-if="createModel.ipv6.enabled" path="gateway" label="网关">
+      <n-form-item v-if="createModel.ipv6.enabled" path="gateway" :label="$gettext('Gateway')">
         <n-input
           v-model:value="createModel.ipv6.gateway"
           type="text"
           @keydown.enter.prevent
-          placeholder="2408:400e::1"
+          :placeholder="$gettext('2408:400e::1')"
         />
       </n-form-item>
-      <n-form-item v-if="createModel.ipv6.enabled" path="ip_range" label="IP范围">
+      <n-form-item v-if="createModel.ipv6.enabled" path="ip_range" :label="$gettext('IP Range')">
         <n-input
           v-model:value="createModel.ipv6.ip_range"
           type="text"
           @keydown.enter.prevent
-          placeholder="2408:400e::/64"
+          :placeholder="$gettext('2408:400e::/64')"
         />
       </n-form-item>
-      <n-form-item path="env" label="标签">
+      <n-form-item path="env" :label="$gettext('Labels')">
         <n-dynamic-input
           v-model:value="createModel.labels"
           preset="pair"
-          key-placeholder="标签名"
-          value-placeholder="标签值"
+          :key-placeholder="$gettext('Label Name')"
+          :value-placeholder="$gettext('Label Value')"
         />
       </n-form-item>
-      <n-form-item path="env" label="选项">
+      <n-form-item path="env" :label="$gettext('Options')">
         <n-dynamic-input
           v-model:value="createModel.options"
           preset="pair"
-          key-placeholder="选项名"
-          value-placeholder="选项值"
+          :key-placeholder="$gettext('Option Name')"
+          :value-placeholder="$gettext('Option Value')"
         />
       </n-form-item>
     </n-form>
     <n-button type="info" block :loading="loading" :disabled="loading" @click="handleCreate">
-      提交
+      {{ $gettext('Submit') }}
     </n-button>
   </n-modal>
 </template>

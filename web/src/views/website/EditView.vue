@@ -6,93 +6,95 @@ defineOptions({
 import Editor from '@guolao/vue-monaco-editor'
 import type { MessageReactive } from 'naive-ui'
 import { NButton } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
 import cert from '@/api/panel/cert'
 import dashboard from '@/api/panel/dashboard'
 import website from '@/api/panel/website'
-import type { Cert } from '@/views/cert/types'
-import type { WebsiteListen, WebsiteSetting } from '@/views/website/types'
+import ProxyBuilderModal from '@/views/website/ProxyBuilderModal.vue'
 
+const { $gettext } = useGettext()
 let messageReactive: MessageReactive | null = null
 
 const current = ref('listen')
 const route = useRoute()
 const { id } = route.params
-
-const setting = ref<WebsiteSetting>({
-  id: 0,
-  name: '',
-  listens: [] as WebsiteListen[],
-  domains: [],
-  root: '',
-  path: '',
-  index: [],
-  php: 0,
-  open_basedir: false,
-  https: false,
-  ssl_certificate: '',
-  ssl_certificate_key: '',
-  ssl_not_before: '',
-  ssl_not_after: '',
-  ssl_dns_names: [],
-  ssl_issuer: '',
-  ssl_ocsp_server: [],
-  http_redirect: false,
-  hsts: false,
-  ocsp: false,
-  rewrite: '',
-  raw: '',
-  log: ''
+const { data: setting, send: fetchSetting } = useRequest(website.config(Number(id)), {
+  initialData: {
+    id: 0,
+    name: '',
+    listens: [],
+    domains: [],
+    root: '',
+    path: '',
+    index: [],
+    php: 0,
+    open_basedir: false,
+    https: false,
+    ssl_certificate: '',
+    ssl_certificate_key: '',
+    ssl_not_before: '',
+    ssl_not_after: '',
+    ssl_dns_names: [],
+    ssl_issuer: '',
+    ssl_ocsp_server: [],
+    http_redirect: false,
+    hsts: false,
+    ocsp: false,
+    rewrite: '',
+    raw: '',
+    log: '',
+    error_log: ''
+  }
 })
-const installedDbAndPhp = ref({
-  php: [
-    {
-      label: '不使用',
-      value: 0
-    }
-  ],
-  db: [
-    {
-      label: '',
-      value: ''
-    }
-  ]
+const { data: installedDbAndPhp } = useRequest(dashboard.installedDbAndPhp, {
+  initialData: {
+    php: [
+      {
+        label: $gettext('Not used'),
+        value: 0
+      }
+    ],
+    db: [
+      {
+        label: '',
+        value: ''
+      }
+    ]
+  }
 })
-const certs = ref<Cert[]>([] as Cert[])
-
+const certs = ref<any>([])
+useRequest(cert.certs(1, 10000)).onSuccess(({ data }) => {
+  certs.value = data.items
+})
+const proxyBuilderModal = ref(false)
+const { data: rewrites } = useRequest(website.rewrites, {
+  initialData: {}
+})
+const rewriteOptions = computed(() => {
+  return Object.keys(rewrites.value).map((key) => ({
+    label: key,
+    value: key
+  }))
+})
+const rewriteValue = ref(null)
 const title = computed(() => {
   if (setting.value) {
-    return `编辑网站 - ${setting.value.name}`
+    return $gettext('Edit Website - %{ name }', { name: setting.value.name })
   }
-  return '编辑网站 - 加载中...'
+  return $gettext('Edit Website')
 })
 const certOptions = computed(() => {
-  return certs.value.map((item) => ({
+  return certs.value.map((item: any) => ({
     label: item.domains.join(', '),
     value: item.id
   }))
 })
 const selectedCert = ref(null)
 
-const fetchPhpAndDb = async () => {
-  const { data } = await dashboard.installedDbAndPhp()
-  installedDbAndPhp.value = data
-}
-
-const fetchWebsiteSetting = async () => {
-  await website.config(Number(id)).then((res) => {
-    setting.value = res.data
-  })
-}
-
-const fetchCertList = async () => {
-  const { data } = await cert.certs(1, 10000)
-  certs.value = data.items
-}
-
-const handleSave = async () => {
+const handleSave = () => {
   // 如果没有任何监听地址设置了https，则自动添加443
-  if (setting.value.https && !setting.value.listens.some((item) => item.https)) {
+  if (setting.value.https && !setting.value.listens.some((item: any) => item.https)) {
     setting.value.listens.push({
       address: '443',
       https: true,
@@ -101,53 +103,61 @@ const handleSave = async () => {
   }
   // 如果关闭了https，自动禁用所有https和quic
   if (!setting.value.https) {
-    setting.value.listens = setting.value.listens.filter((item) => item.address !== '443') // 443直接删掉
-    setting.value.listens.forEach((item) => {
+    setting.value.listens = setting.value.listens.filter((item: any) => item.address !== '443') // 443直接删掉
+    setting.value.listens.forEach((item: any) => {
       item.https = false
       item.quic = false
     })
   }
 
-  await website.saveConfig(Number(id), setting.value).then(() => {
-    fetchWebsiteSetting()
-    window.$message.success('保存成功')
+  useRequest(website.saveConfig(Number(id), setting.value)).onSuccess(() => {
+    fetchSetting()
+    window.$message.success($gettext('Saved successfully'))
   })
 }
 
-const handleReset = async () => {
-  await website.resetConfig(Number(id)).then(() => {
-    fetchWebsiteSetting()
-    window.$message.success('重置成功')
+const handleReset = () => {
+  useRequest(website.resetConfig(Number(id))).onSuccess(() => {
+    fetchSetting()
+    window.$message.success($gettext('Reset successfully'))
   })
 }
 
-const handleObtainCert = async () => {
-  messageReactive = window.$message.loading('请稍后...', {
+const handleRewrite = (value: string) => {
+  setting.value.rewrite = rewrites.value[value] || ''
+}
+
+const isObtainCert = ref(false)
+const handleObtainCert = () => {
+  isObtainCert.value = true
+  messageReactive = window.$message.loading($gettext('Please wait...'), {
     duration: 0
   })
-  await website
-    .obtainCert(Number(id))
-    .then(() => {
-      fetchWebsiteSetting()
-      window.$message.success('签发成功')
+  useRequest(website.obtainCert(Number(id)))
+    .onSuccess(() => {
+      fetchSetting()
+      window.$message.success($gettext('Issued successfully'))
     })
-    .finally(() => {
+    .onComplete(() => {
+      isObtainCert.value = false
       messageReactive?.destroy()
     })
 }
 
 const handleSelectCert = (value: number) => {
-  const cert = certs.value.find((item) => item.id === value)
-  if (cert) {
+  const cert = certs.value.find((item: any) => item.id === value)
+  if (cert && cert.cert !== '' && cert.key !== '') {
     setting.value.ssl_certificate = cert.cert
     setting.value.ssl_certificate_key = cert.key
+  } else {
+    window.$message.error($gettext('The selected certificate is invalid'))
   }
 }
 
 const clearLog = async () => {
-  await website.clearLog(Number(id)).then(() => {
-    fetchWebsiteSetting()
-    window.$message.success('清空成功')
+  useRequest(website.clearLog(Number(id))).onSuccess(() => {
+    fetchSetting()
+    window.$message.success($gettext('Cleared successfully'))
   })
 }
 
@@ -158,54 +168,14 @@ const onCreateListen = () => {
     quic: false
   }
 }
-
-onMounted(async () => {
-  await fetchWebsiteSetting()
-  await fetchPhpAndDb()
-  await fetchCertList()
-})
 </script>
 
 <template>
   <common-page show-footer :title="title">
-    <template #action>
-      <n-flex>
-        <n-tag v-if="current === 'config'" type="warning">
-          如果您修改了原文，那么点击保存后，其余的修改将不会生效！
-        </n-tag>
-        <n-popconfirm v-if="current === 'config'" @positive-click="handleReset">
-          <template #trigger>
-            <n-button type="success">
-              <TheIcon :size="18" icon="material-symbols:refresh" />
-              重置配置
-            </n-button>
-          </template>
-          确定要重置配置吗？
-        </n-popconfirm>
-        <n-button v-if="current === 'https'" class="ml-16" type="success" @click="handleObtainCert">
-          <TheIcon :size="18" icon="material-symbols:done-rounded" />
-          一键签发证书
-        </n-button>
-        <n-button v-if="current !== 'log'" class="ml-16" type="primary" @click="handleSave">
-          <TheIcon :size="18" icon="material-symbols:save-outline" />
-          保存
-        </n-button>
-        <n-popconfirm v-if="current === 'log'" @positive-click="clearLog">
-          <template #trigger>
-            <n-button type="primary">
-              <TheIcon :size="18" icon="material-symbols:delete-outline" />
-              清空日志
-            </n-button>
-          </template>
-          确定要清空吗？
-        </n-popconfirm>
-      </n-flex>
-    </template>
-
     <n-tabs v-model:value="current" type="line" animated>
-      <n-tab-pane name="listen" tab="域名监听">
+      <n-tab-pane name="listen" :tab="$gettext('Domain & Listening')">
         <n-form v-if="setting">
-          <n-form-item label="域名">
+          <n-form-item :label="$gettext('Domain')">
             <n-dynamic-input
               v-model:value="setting.domains"
               placeholder="example.com"
@@ -213,7 +183,7 @@ onMounted(async () => {
               show-sort-button
             />
           </n-form-item>
-          <n-form-item label="监听地址">
+          <n-form-item :label="$gettext('Listening Address')">
             <n-dynamic-input
               v-model:value="setting.listens"
               show-sort-button
@@ -231,31 +201,36 @@ onMounted(async () => {
         </n-form>
         <n-skeleton v-else text :repeat="10" />
       </n-tab-pane>
-      <n-tab-pane name="basic" tab="基本设置">
+      <n-tab-pane name="basic" :tab="$gettext('Basic Settings')">
         <n-form v-if="setting">
-          <n-form-item label="网站目录">
-            <n-input v-model:value="setting.path" placeholder="输入网站目录（绝对路径）" />
-          </n-form-item>
-          <n-form-item label="运行目录">
+          <n-form-item :label="$gettext('Website Directory')">
             <n-input
-              v-model:value="setting.root"
-              placeholder="输入运行目录（Laravel等程序需要）（绝对路径）"
+              v-model:value="setting.path"
+              :placeholder="$gettext('Enter website directory (absolute path)')"
             />
           </n-form-item>
-          <n-form-item label="默认文档">
+          <n-form-item :label="$gettext('Running Directory')">
+            <n-input
+              v-model:value="setting.root"
+              :placeholder="
+                $gettext('Enter running directory (needed for Laravel etc.) (absolute path)')
+              "
+            />
+          </n-form-item>
+          <n-form-item :label="$gettext('Default Document')">
             <n-dynamic-tags v-model:value="setting.index" />
           </n-form-item>
-          <n-form-item label="PHP版本">
+          <n-form-item :label="$gettext('PHP Version')">
             <n-select
               v-model:value="setting.php"
               :default-value="0"
               :options="installedDbAndPhp.php"
-              placeholder="选择PHP版本"
+              :placeholder="$gettext('Select PHP Version')"
               @keydown.enter.prevent
             >
             </n-select>
           </n-form-item>
-          <n-form-item label="防跨站攻击（PHP）">
+          <n-form-item :label="$gettext('Anti-cross-site Attack (PHP)')">
             <n-switch v-model:value="setting.open_basedir" />
           </n-form-item>
         </n-form>
@@ -263,10 +238,19 @@ onMounted(async () => {
       </n-tab-pane>
       <n-tab-pane name="https" tab="HTTPS">
         <n-flex vertical v-if="setting">
+          <n-button
+            :loading="isObtainCert"
+            :disabled="isObtainCert"
+            class="ml-16"
+            type="success"
+            @click="handleObtainCert"
+          >
+            {{ $gettext('One-click Certificate Issuance') }}
+          </n-button>
           <n-card v-if="setting.https && setting.ssl_issuer != ''">
-            <n-descriptions title="证书信息" :column="2">
+            <n-descriptions :title="$gettext('Certificate Information')" :column="2">
               <n-descriptions-item>
-                <template #label>证书有效期</template>
+                <template #label>{{ $gettext('Certificate Validity') }}</template>
                 <n-flex>
                   <n-tag>{{ setting.ssl_not_before }}</n-tag>
                   -
@@ -274,13 +258,13 @@ onMounted(async () => {
                 </n-flex>
               </n-descriptions-item>
               <n-descriptions-item>
-                <template #label>颁发者</template>
+                <template #label>{{ $gettext('Issuer') }}</template>
                 <n-flex>
                   <n-tag>{{ setting.ssl_issuer }}</n-tag>
                 </n-flex>
               </n-descriptions-item>
               <n-descriptions-item>
-                <template #label>域名</template>
+                <template #label>{{ $gettext('Domains') }}</template>
                 <n-flex>
                   <n-tag v-for="item in setting.ssl_dns_names" :key="item">{{ item }}</n-tag>
                 </n-flex>
@@ -295,10 +279,14 @@ onMounted(async () => {
           </n-card>
           <n-form>
             <n-grid :cols="24" :x-gap="24">
-              <n-form-item-gi :span="12" label="总开关（只有打开了总开关，下面的设置才会生效！）">
+              <n-form-item-gi :span="12" :label="$gettext('Main Switch')">
                 <n-switch v-model:value="setting.https" />
               </n-form-item-gi>
-              <n-form-item-gi v-if="setting.https" :span="12" label="使用已有证书">
+              <n-form-item-gi
+                v-if="setting.https"
+                :span="12"
+                :label="$gettext('Use Existing Certificate')"
+              >
                 <n-select
                   v-model:value="selectedCert"
                   :options="certOptions"
@@ -307,43 +295,53 @@ onMounted(async () => {
               </n-form-item-gi>
             </n-grid>
           </n-form>
-          <n-form inline>
+          <n-form inline v-if="setting.https">
             <n-form-item label="HSTS">
               <n-switch v-model:value="setting.hsts" />
             </n-form-item>
-            <n-form-item label="HTTP 跳转">
+            <n-form-item :label="$gettext('HTTP Redirect')">
               <n-switch v-model:value="setting.http_redirect" />
             </n-form-item>
-            <n-form-item label="OCSP 装订">
+            <n-form-item :label="$gettext('OCSP Stapling')">
               <n-switch v-model:value="setting.ocsp" />
             </n-form-item>
           </n-form>
-          <n-form>
-            <n-form-item label="证书">
+          <n-form v-if="setting.https">
+            <n-form-item :label="$gettext('Certificate')">
               <n-input
                 v-model:value="setting.ssl_certificate"
                 type="textarea"
-                placeholder="输入 PEM 证书文件的内容"
+                :placeholder="$gettext('Enter the content of the PEM certificate file')"
+                :autosize="{ minRows: 10, maxRows: 15 }"
               />
             </n-form-item>
-            <n-form-item label="私钥">
+            <n-form-item :label="$gettext('Private Key')">
               <n-input
                 v-model:value="setting.ssl_certificate_key"
                 type="textarea"
-                placeholder="输入 KEY 私钥文件的内容"
+                :placeholder="$gettext('Enter the content of the KEY private key file')"
+                :autosize="{ minRows: 10, maxRows: 15 }"
               />
             </n-form-item>
           </n-form>
         </n-flex>
         <n-skeleton v-else text :repeat="10" />
       </n-tab-pane>
-      <n-tab-pane name="rewrite" tab="伪静态">
+      <n-tab-pane name="rewrite" :tab="$gettext('Rewrite')">
         <n-flex vertical>
-          <n-alert type="info" w-full>
-            设置伪静态规则，填入
-            <n-tag>location</n-tag>
-            部分即可
-          </n-alert>
+          <n-button type="success" @click="proxyBuilderModal = true">
+            {{ $gettext('Generate Reverse Proxy Configuration') }}
+          </n-button>
+          <n-form label-placement="left" label-width="auto">
+            <n-form-item :label="$gettext('Presets')">
+              <n-select
+                v-model:value="rewriteValue"
+                clearable
+                :options="rewriteOptions"
+                @update-value="handleRewrite"
+              />
+            </n-form-item>
+          </n-form>
           <Editor
             v-if="setting"
             v-model:value="setting.rewrite"
@@ -352,17 +350,35 @@ onMounted(async () => {
             height="60vh"
             :options="{
               automaticLayout: true,
-              formatOnType: true,
-              formatOnPaste: true
+              smoothScrolling: true
             }"
           />
         </n-flex>
       </n-tab-pane>
-      <n-tab-pane name="config" tab="配置原文">
+      <n-tab-pane name="config" :tab="$gettext('Configuration')">
         <n-flex vertical>
-          <n-alert type="warning" w-full>
-            如果您不了解配置规则，请勿随意修改，否则可能会导致网站无法访问或面板功能异常！如果已经遇到问题，可尝试重置配置！
+          <n-alert type="info" w-full>
+            {{
+              $gettext(
+                'If you modify the original text, other modifications will not take effect after clicking save!'
+              )
+            }}
           </n-alert>
+          <n-alert type="warning" w-full>
+            {{
+              $gettext(
+                'If you do not understand the configuration rules, please do not modify them arbitrarily, otherwise it may cause the website to be inaccessible or panel function abnormalities! If you have already encountered a problem, try resetting the configuration!'
+              )
+            }}
+          </n-alert>
+          <n-popconfirm @positive-click="handleReset">
+            <template #trigger>
+              <n-button type="success">
+                {{ $gettext('Reset Configuration') }}
+              </n-button>
+            </template>
+            {{ $gettext('Are you sure you want to reset the configuration?') }}
+          </n-popconfirm>
           <Editor
             v-if="setting"
             v-model:value="setting.raw"
@@ -371,24 +387,47 @@ onMounted(async () => {
             height="60vh"
             :options="{
               automaticLayout: true,
-              formatOnType: true,
-              formatOnPaste: true
+              smoothScrolling: true
             }"
           />
         </n-flex>
       </n-tab-pane>
-      <n-tab-pane name="log" tab="访问日志">
+      <n-tab-pane name="log" :tab="$gettext('Access Log')">
         <n-flex vertical>
           <n-flex flex items-center>
             <n-alert type="warning" w-full>
-              全部日志可通过下载文件
+              {{ $gettext('All logs can be viewed by downloading the file') }}
               <n-tag>{{ setting.log }}</n-tag>
-              查看。
+              {{ $gettext('view') }}.
             </n-alert>
+            <n-popconfirm @positive-click="clearLog">
+              <template #trigger>
+                <n-button type="primary">
+                  {{ $gettext('Clear Logs') }}
+                </n-button>
+              </template>
+              {{ $gettext('Are you sure you want to clear?') }}
+            </n-popconfirm>
           </n-flex>
           <realtime-log :path="setting.log" />
         </n-flex>
       </n-tab-pane>
+      <n-tab-pane name="error_log" :tab="$gettext('Error Log')">
+        <n-flex vertical>
+          <n-flex flex items-center>
+            <n-alert type="warning" w-full>
+              {{ $gettext('All logs can be viewed by downloading the file') }}
+              <n-tag>{{ setting.error_log }}</n-tag>
+              {{ $gettext('view') }}.
+            </n-alert>
+          </n-flex>
+          <realtime-log :path="setting.error_log" />
+        </n-flex>
+      </n-tab-pane>
     </n-tabs>
+    <n-button v-if="current !== 'log'" type="primary" @click="handleSave">
+      {{ $gettext('Save') }}
+    </n-button>
   </common-page>
+  <ProxyBuilderModal v-model:show="proxyBuilderModal" v-model:config="setting.rewrite" />
 </template>

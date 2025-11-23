@@ -23,17 +23,6 @@ interface Tab {
   height: number
 }
 
-interface OtherColor {
-  /** 信息 */
-  info: string
-  /** 成功 */
-  success: string
-  /** 警告 */
-  warning: string
-  /** 错误 */
-  error: string
-}
-
 declare namespace Theme {
   interface Setting {
     isMobile: boolean
@@ -41,12 +30,11 @@ declare namespace Theme {
     sider: Sider
     header: Header
     tab: Tab
-    /** 主题颜色 */
-    primaryColor: string
-    otherColor: OtherColor
     /** 语言 */
     locale: string
     /** 名称 */
     name: string
+    /** Logo */
+    logo: string
   }
 }

@@ -3,20 +3,19 @@ package service
 import (
 	"net/http"
 
-	"github.com/go-rat/chix"
+	"github.com/libtnb/chix"
 
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/internal/data"
-	"github.com/TheTNB/panel/internal/http/request"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/internal/http/request"
 )
 
 type CertDNSService struct {
 	certDNSRepo biz.CertDNSRepo
 }
 
-func NewCertDNSService() *CertDNSService {
+func NewCertDNSService(certDNS biz.CertDNSRepo) *CertDNSService {
 	return &CertDNSService{
-		certDNSRepo: data.NewCertDNSRepo(),
+		certDNSRepo: certDNS,
 	}
 }
 

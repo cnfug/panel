@@ -3,20 +3,19 @@ package service
 import (
 	"net/http"
 
-	"github.com/go-rat/chix"
+	"github.com/libtnb/chix"
 
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/internal/data"
-	"github.com/TheTNB/panel/internal/http/request"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/internal/http/request"
 )
 
 type SSHService struct {
 	sshRepo biz.SSHRepo
 }
 
-func NewSSHService() *SSHService {
+func NewSSHService(ssh biz.SSHRepo) *SSHService {
 	return &SSHService{
-		sshRepo: data.NewSSHRepo(),
+		sshRepo: ssh,
 	}
 }
 

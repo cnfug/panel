@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import ws from '@/api/ws'
 import type { LogInst } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
+const { $gettext } = useGettext()
 const props = defineProps({
   path: {
     type: String,
-    required: true
+    required: false
+  },
+  service: {
+    type: String,
+    required: false
   }
 })
 
@@ -14,7 +20,15 @@ const logRef = ref<LogInst | null>(null)
 let logWs: WebSocket | null = null
 
 const init = async () => {
-  const cmd = `tail -n 100 -f '${props.path}'`
+  let cmd = ''
+  if (props.path) {
+    cmd = `tail -n 100 -f '${props.path}'`
+  } else if (props.service) {
+    cmd = `journalctl -u '${props.service}' -f`
+  } else {
+    window.$message.error($gettext('Path or service cannot be empty'))
+    return
+  }
   ws.exec(cmd)
     .then((ws: WebSocket) => {
       logWs = ws
@@ -27,7 +41,7 @@ const init = async () => {
       }
     })
     .catch(() => {
-      window.$message.error('获取日志流失败')
+      window.$message.error($gettext('Failed to get log stream'))
     })
 }
 

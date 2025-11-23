@@ -3,6 +3,9 @@ import file from '@/api/panel/file'
 import { checkName, lastDirectory } from '@/utils/file'
 import UploadModal from '@/views/file/UploadModal.vue'
 import type { Marked } from '@/views/file/types'
+import { useGettext } from 'vue3-gettext'
+
+const { $gettext } = useGettext()
 
 const path = defineModel<string>('path', { type: String, required: true })
 const selected = defineModel<string[]>('selected', { type: Array, default: () => [] })
@@ -31,36 +34,36 @@ const showCreate = (value: string) => {
 
 const handleCreate = () => {
   if (!checkName(createModel.value.path)) {
-    window.$message.error('名称不合法')
+    window.$message.error($gettext('Invalid name'))
     return
   }
 
   const fullPath = path.value + '/' + createModel.value.path
-  file.create(fullPath, createModel.value.dir).then(() => {
+  useRequest(file.create(fullPath, createModel.value.dir)).onSuccess(() => {
     create.value = false
-    window.$message.success('创建成功')
     window.$bus.emit('file:refresh')
+    window.$message.success($gettext('Created successfully'))
   })
 }
 
 const handleDownload = () => {
   if (!checkName(downloadModel.value.path)) {
-    window.$message.error('名称不合法')
+    window.$message.error($gettext('Invalid name'))
     return
   }
 
-  file
-    .remoteDownload(path.value + '/' + downloadModel.value.path, downloadModel.value.url)
-    .then(() => {
-      download.value = false
-      window.$message.success('下载任务创建成功')
-      window.$bus.emit('file:refresh')
-    })
+  useRequest(
+    file.remoteDownload(path.value + '/' + downloadModel.value.path, downloadModel.value.url)
+  ).onSuccess(() => {
+    download.value = false
+    window.$bus.emit('file:refresh')
+    window.$message.success($gettext('Download task created successfully'))
+  })
 }
 
 const handleCopy = () => {
   if (!selected.value.length) {
-    window.$message.error('请选择要复制的文件/文件夹')
+    window.$message.error($gettext('Please select files/folders to copy'))
     return
   }
   markedType.value = 'copy'
@@ -70,12 +73,14 @@ const handleCopy = () => {
     force: false
   }))
   selected.value = []
-  window.$message.success('标记成功，请前往目标路径粘贴')
+  window.$message.success(
+    $gettext('Marked successfully, please navigate to the destination path to paste')
+  )
 }
 
 const handleMove = () => {
   if (!selected.value.length) {
-    window.$message.error('请选择要移动的文件/文件夹')
+    window.$message.error($gettext('Please select files/folders to move'))
     return
   }
   markedType.value = 'move'
@@ -85,22 +90,24 @@ const handleMove = () => {
     force: false
   }))
   selected.value = []
-  window.$message.success('标记成功，请前往目标路径粘贴')
+  window.$message.success(
+    $gettext('Marked successfully, please navigate to the destination path to paste')
+  )
 }
 
 const handleCancel = () => {
   marked.value = []
 }
 
-const handlePaste = async () => {
+const handlePaste = () => {
   if (!marked.value.length) {
-    window.$message.error('请先标记需要复制或移动的文件/文件夹')
+    window.$message.error($gettext('Please mark the files/folders to copy or move first'))
     return
   }
 
   // 查重
   let flag = false
-  let paths = marked.value.map((item) => {
+  const paths = marked.value.map((item) => {
     return {
       name: item.name,
       source: item.source,
@@ -109,71 +116,77 @@ const handlePaste = async () => {
     }
   })
   const sources = paths.map((item: any) => item.target)
-  await file.exist(sources).then(async (res) => {
-    for (let i = 0; i < res.data.length; i++) {
-      if (res.data[i]) {
+  useRequest(file.exist(sources)).onSuccess(({ data }) => {
+    for (let i = 0; i < data.length; i++) {
+      if (data[i]) {
         flag = true
         paths[i].force = true
       }
     }
     if (flag) {
       window.$dialog.warning({
-        title: '警告',
-        content: `存在同名项
-      ${paths
-        .filter((item) => item.force)
-        .map((item) => item.name)
-        .join(', ')} 是否覆盖？`,
-        positiveText: '覆盖',
-        negativeText: '取消',
+        title: $gettext('Warning'),
+        content: $gettext(
+          'There are items with the same name %{ items } Do you want to overwrite?',
+          {
+            items: `${paths
+              .filter((item) => item.force)
+              .map((item) => item.name)
+              .join(', ')}`
+          }
+        ),
+        positiveText: $gettext('Overwrite'),
+        negativeText: $gettext('Cancel'),
         onPositiveClick: async () => {
           if (markedType.value == 'copy') {
-            await file.copy(paths).then(() => {
-              window.$message.success('复制成功')
+            useRequest(file.copy(paths)).onSuccess(() => {
+              marked.value = []
+              window.$bus.emit('file:refresh')
+              window.$message.success($gettext('Copied successfully'))
             })
           } else {
-            await file.move(paths).then(() => {
-              window.$message.success('移动成功')
+            useRequest(file.move(paths)).onSuccess(() => {
+              marked.value = []
+              window.$bus.emit('file:refresh')
+              window.$message.success($gettext('Moved successfully'))
             })
           }
-          marked.value = []
-          window.$bus.emit('file:refresh')
         },
         onNegativeClick: () => {
           marked.value = []
-          window.$message.info('已取消')
+          window.$message.info($gettext('Canceled'))
         }
       })
     } else {
       if (markedType.value == 'copy') {
-        await file.copy(paths).then(() => {
-          window.$message.success('复制成功')
+        useRequest(file.copy(paths)).onSuccess(() => {
+          marked.value = []
+          window.$bus.emit('file:refresh')
+          window.$message.success($gettext('Copied successfully'))
         })
       } else {
-        await file.move(paths).then(() => {
-          window.$message.success('移动成功')
+        useRequest(file.move(paths)).onSuccess(() => {
+          marked.value = []
+          window.$bus.emit('file:refresh')
+          window.$message.success($gettext('Moved successfully'))
         })
       }
-      marked.value = []
-      window.$bus.emit('file:refresh')
     }
   })
 }
 
 const bulkDelete = async () => {
   if (!selected.value.length) {
-    window.$message.error('请选择要删除的文件/文件夹')
+    window.$message.error($gettext('Please select files/folders to delete'))
     return
   }
 
-  for (const path of selected.value) {
-    await file.delete(path).then(() => {
-      window.$message.success(`删除 ${path} 成功`)
-      window.$bus.emit('file:refresh')
-    })
-  }
+  const promises = selected.value.map((path) => file.delete(path))
+  await Promise.all(promises)
 
   selected.value = []
+  window.$bus.emit('file:refresh')
+  window.$message.success($gettext('Deleted successfully'))
 }
 
 // 自动填充下载文件名
@@ -198,33 +211,33 @@ watch(
   <n-flex>
     <n-popselect
       :options="[
-        { label: '文件', value: 'file' },
-        { label: '文件夹', value: 'folder' }
+        { label: $gettext('File'), value: 'file' },
+        { label: $gettext('Folder'), value: 'folder' }
       ]"
       @update:value="showCreate"
     >
-      <n-button type="primary"> 创建 </n-button>
+      <n-button type="primary">{{ $gettext('New') }}</n-button>
     </n-popselect>
-    <n-button @click="upload = true"> 上传 </n-button>
-    <n-button @click="download = true"> 远程下载 </n-button>
+    <n-button @click="upload = true">{{ $gettext('Upload') }}</n-button>
+    <n-button @click="download = true">{{ $gettext('Remote Download') }}</n-button>
     <div ml-auto>
       <n-flex>
         <n-button v-if="marked.length" secondary type="error" @click="handleCancel">
-          取消
+          {{ $gettext('Cancel') }}
         </n-button>
         <n-button v-if="marked.length" secondary type="primary" @click="handlePaste">
-          粘贴
+          {{ $gettext('Paste') }}
         </n-button>
         <n-button-group v-if="selected.length">
-          <n-button @click="handleCopy"> 复制 </n-button>
-          <n-button @click="handleMove"> 移动 </n-button>
-          <n-button @click="compress = true"> 压缩 </n-button>
-          <n-button @click="permission = true"> 权限 </n-button>
+          <n-button @click="handleCopy">{{ $gettext('Copy') }}</n-button>
+          <n-button @click="handleMove">{{ $gettext('Move') }}</n-button>
+          <n-button @click="compress = true">{{ $gettext('Compress') }}</n-button>
+          <n-button @click="permission = true">{{ $gettext('Permission') }}</n-button>
           <n-popconfirm @positive-click="bulkDelete">
             <template #trigger>
-              <n-button>删除</n-button>
+              <n-button>{{ $gettext('Delete') }}</n-button>
             </template>
-            确定要批量删除吗？
+            {{ $gettext('Are you sure you want to delete in bulk?') }}
           </n-popconfirm>
         </n-button-group>
       </n-flex>
@@ -233,7 +246,7 @@ watch(
   <n-modal
     v-model:show="create"
     preset="card"
-    title="创建"
+    :title="$gettext('New')"
     style="width: 60vw"
     size="huge"
     :bordered="false"
@@ -241,17 +254,17 @@ watch(
   >
     <n-space vertical>
       <n-form :model="createModel">
-        <n-form-item label="名称">
+        <n-form-item :label="$gettext('Name')">
           <n-input v-model:value="createModel.path" />
         </n-form-item>
       </n-form>
-      <n-button type="info" block @click="handleCreate">提交</n-button>
+      <n-button type="info" block @click="handleCreate">{{ $gettext('Submit') }}</n-button>
     </n-space>
   </n-modal>
   <n-modal
     v-model:show="download"
     preset="card"
-    title="远程下载"
+    :title="$gettext('Remote Download')"
     style="width: 60vw"
     size="huge"
     :bordered="false"
@@ -259,14 +272,14 @@ watch(
   >
     <n-space vertical>
       <n-form :model="downloadModel">
-        <n-form-item label="下载链接">
+        <n-form-item :label="$gettext('Download URL')">
           <n-input :input-props="{ type: 'url' }" v-model:value="downloadModel.url" />
         </n-form-item>
-        <n-form-item label="保存文件名">
+        <n-form-item :label="$gettext('Save as')">
           <n-input v-model:value="downloadModel.path" />
         </n-form-item>
       </n-form>
-      <n-button type="info" block @click="handleDownload">提交</n-button>
+      <n-button type="info" block @click="handleDownload">{{ $gettext('Submit') }}</n-button>
     </n-space>
   </n-modal>
   <upload-modal v-model:show="upload" v-model:path="path" />

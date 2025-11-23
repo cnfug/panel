@@ -8,9 +8,11 @@ import {
   NSpace,
   NTag
 } from 'naive-ui'
+import { useGettext } from 'vue3-gettext'
 
 import cert from '@/api/panel/cert'
-import type { Account } from '@/views/cert/types'
+
+const { $gettext } = useGettext()
 
 const props = defineProps({
   caProviders: {
@@ -32,14 +34,14 @@ const updateAccountModel = ref<any>({
   email: '',
   kid: '',
   key_type: 'P256',
-  ca: 'googlecn'
+  ca: 'letsencrypt'
 })
 const updateAccountModal = ref(false)
 const updateAccount = ref<any>()
 
 const columns: any = [
   {
-    title: '邮箱',
+    title: $gettext('Email'),
     key: 'email',
     minWidth: 200,
     resizable: true,
@@ -67,17 +69,16 @@ const columns: any = [
     }
   },
   {
-    title: '密钥类型',
+    title: $gettext('Key Type'),
     key: 'key_type',
     width: 150,
     resizable: true,
     ellipsis: { tooltip: true }
   },
   {
-    title: '操作',
+    title: $gettext('Actions'),
     key: 'actions',
     width: 200,
-    align: 'center',
     hideInExcel: true,
     render(row: any) {
       return [
@@ -97,21 +98,22 @@ const columns: any = [
             }
           },
           {
-            default: () => '修改'
+            default: () => $gettext('Modify')
           }
         ),
         h(
           NPopconfirm,
           {
-            onPositiveClick: async () => {
-              await cert.accountDelete(row.id)
-              window.$message.success('删除成功')
-              onPageChange(1)
+            onPositiveClick: () => {
+              useRequest(cert.accountDelete(row.id)).onSuccess(() => {
+                window.$message.success($gettext('Deletion successful'))
+                refresh()
+              })
             }
           },
           {
             default: () => {
-              return '确定删除账号吗？'
+              return $gettext('Are you sure you want to delete the account?')
             },
             trigger: () => {
               return h(
@@ -122,7 +124,7 @@ const columns: any = [
                   style: 'margin-left: 15px;'
                 },
                 {
-                  default: () => '删除'
+                  default: () => $gettext('Delete')
                 }
               )
             }
@@ -132,55 +134,42 @@ const columns: any = [
     }
   }
 ]
-const data = ref<Account[]>([] as Account[])
 
-const pagination = reactive({
-  page: 1,
-  pageCount: 1,
-  pageSize: 20,
-  itemCount: 0,
-  showQuickJumper: true,
-  showSizePicker: true,
-  pageSizes: [20, 50, 100, 200]
-})
+const { loading, data, page, total, pageSize, pageCount, refresh } = usePagination(
+  (page, pageSize) => cert.accounts(page, pageSize),
+  {
+    initialData: { total: 0, list: [] },
+    initialPageSize: 20,
+    total: (res: any) => res.total,
+    data: (res: any) => res.items
+  }
+)
 
-const onPageChange = (page: number) => {
-  pagination.page = page
-  getAccountList(page, pagination.pageSize).then((res) => {
-    data.value = res.items
-    pagination.itemCount = res.total
-    pagination.pageCount = res.total / pagination.pageSize + 1
-  })
-}
-
-const onPageSizeChange = (pageSize: number) => {
-  pagination.pageSize = pageSize
-  onPageChange(1)
-}
-
-const getAccountList = async (page: number, limit: number) => {
-  const { data } = await cert.accounts(page, limit)
-  return data
-}
-
-const handleUpdateAccount = async () => {
-  messageReactive = window.$message.loading('正在向 CA 注册账号，请耐心等待', {
-    duration: 0
-  })
-  await cert.accountUpdate(updateAccount.value, updateAccountModel.value)
-  messageReactive.destroy()
-  window.$message.success('更新成功')
-  updateAccountModal.value = false
-  onPageChange(1)
-  updateAccountModel.value.email = ''
-  updateAccountModel.value.hmac_encoded = ''
-  updateAccountModel.value.kid = ''
+const handleUpdateAccount = () => {
+  messageReactive = window.$message.loading(
+    $gettext('Registering account with CA, please wait patiently'),
+    {
+      duration: 0
+    }
+  )
+  useRequest(cert.accountUpdate(updateAccount.value, updateAccountModel.value))
+    .onSuccess(() => {
+      refresh()
+      updateAccountModal.value = false
+      updateAccountModel.value.email = ''
+      updateAccountModel.value.hmac_encoded = ''
+      updateAccountModel.value.kid = ''
+      window.$message.success($gettext('Update successful'))
+    })
+    .onComplete(() => {
+      messageReactive?.destroy()
+    })
 }
 
 onMounted(() => {
-  onPageChange(pagination.page)
+  refresh()
   window.$bus.on('cert:refresh-account', () => {
-    onPageChange(pagination.page)
+    refresh()
   })
 })
 
@@ -195,52 +184,68 @@ onUnmounted(() => {
       striped
       remote
       :scroll-x="1000"
-      :loading="false"
+      :loading="loading"
       :columns="columns"
       :data="data"
       :row-key="(row: any) => row.id"
-      :pagination="pagination"
-      @update:page="onPageChange"
-      @update:page-size="onPageSizeChange"
+      v-model:page="page"
+      v-model:pageSize="pageSize"
+      :pagination="{
+        page: page,
+        pageCount: pageCount,
+        pageSize: pageSize,
+        itemCount: total,
+        showQuickJumper: true,
+        showSizePicker: true,
+        pageSizes: [20, 50, 100, 200]
+      }"
     />
   </n-space>
   <n-modal
     v-model:show="updateAccountModal"
     preset="card"
-    title="修改账号"
+    :title="$gettext('Modify Account')"
     style="width: 60vw"
     size="huge"
     :bordered="false"
     :segmented="false"
   >
     <n-space vertical>
-      <n-alert type="info"> Google 和 SSL.com 需要先去官网获得 KID 和 HMAC 并填入 </n-alert>
+      <n-alert type="info">{{
+        $gettext(
+          'Google and SSL.com require obtaining KID and HMAC from their official websites first'
+        )
+      }}</n-alert>
       <n-alert type="warning">
-        境内无法使用 Google，其他 CA 视网络情况而定，建议使用 GoogleCN 或 Let's Encrypt
+        {{
+          $gettext(
+            "Google is not accessible in mainland China, other CAs depend on network conditions, recommend using Let's Encrypt"
+          )
+        }}
       </n-alert>
       <n-form :model="updateAccountModel">
-        <n-form-item path="ca" label="CA">
+        <n-form-item path="ca" :label="$gettext('CA')">
           <n-select
             v-model:value="updateAccountModel.ca"
-            placeholder="选择 CA"
+            :placeholder="$gettext('Select CA')"
             clearable
             :options="caProviders"
           />
         </n-form-item>
-        <n-form-item path="key_type" label="密钥类型">
+        <n-form-item path="key_type" :label="$gettext('Key Type')">
           <n-select
             v-model:value="updateAccountModel.key_type"
-            placeholder="选择密钥类型"
+            :placeholder="$gettext('Select key type')"
             clearable
             :options="algorithms"
           />
         </n-form-item>
-        <n-form-item path="email" label="邮箱">
+        <n-form-item path="email" :label="$gettext('Email')">
           <n-input
             v-model:value="updateAccountModel.email"
             type="text"
             @keydown.enter.prevent
-            placeholder="输入邮箱地址"
+            :placeholder="$gettext('Enter email address')"
           />
         </n-form-item>
         <n-form-item path="kid" label="KID">
@@ -248,7 +253,7 @@ onUnmounted(() => {
             v-model:value="updateAccountModel.kid"
             type="text"
             @keydown.enter.prevent
-            placeholder="输入 KID"
+            :placeholder="$gettext('Enter KID')"
           />
         </n-form-item>
         <n-form-item path="hmac_encoded" label="HMAC">
@@ -256,11 +261,11 @@ onUnmounted(() => {
             v-model:value="updateAccountModel.hmac_encoded"
             type="text"
             @keydown.enter.prevent
-            placeholder="输入 HMAC"
+            :placeholder="$gettext('Enter HMAC')"
           />
         </n-form-item>
       </n-form>
-      <n-button type="info" block @click="handleUpdateAccount">提交</n-button>
+      <n-button type="info" block @click="handleUpdateAccount">{{ $gettext('Submit') }}</n-button>
     </n-space>
   </n-modal>
 </template>

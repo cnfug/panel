@@ -3,14 +3,14 @@ package biz
 import (
 	"time"
 
-	"github.com/TheTNB/panel/internal/http/request"
-	"github.com/TheTNB/panel/pkg/acme"
+	"github.com/acepanel/panel/internal/http/request"
+	"github.com/acepanel/panel/pkg/acme"
 )
 
 type CertDNS struct {
 	ID        uint          `gorm:"primaryKey" json:"id"`
-	Name      string        `gorm:"not null" json:"name"` // 备注名称
-	Type      string        `gorm:"not null" json:"type"` // DNS 提供商 (dnspod, tencent, aliyun, cloudflare)
+	Name      string        `gorm:"not null;default:''" json:"name"`       // 备注名称
+	Type      acme.DnsType  `gorm:"not null;default:'aliyun'" json:"type"` // DNS 提供商
 	Data      acme.DNSParam `gorm:"not null;serializer:json" json:"dns_param"`
 	CreatedAt time.Time     `json:"created_at"`
 	UpdatedAt time.Time     `json:"updated_at"`

@@ -1,32 +1,6 @@
 package app
 
-import (
-	"log/slog"
-
-	"github.com/go-chi/chi/v5"
-	ut "github.com/go-playground/universal-translator"
-	"github.com/go-playground/validator/v10"
-	"github.com/go-rat/sessions"
-	"github.com/knadh/koanf/v2"
-	"github.com/robfig/cron/v3"
-	"gorm.io/gorm"
-
-	"github.com/TheTNB/panel/pkg/queue"
-)
-
-var (
-	Conf       *koanf.Koanf
-	Http       *chi.Mux
-	Orm        *gorm.DB
-	Validator  *validator.Validate
-	Translator *ut.Translator
-	Session    *sessions.Manager
-	Cron       *cron.Cron
-	Queue      *queue.Queue
-	Logger     *slog.Logger
-)
-
-// 定义面板状态常量
+// 面板状态常量
 const (
 	StatusNormal = iota
 	StatusMaintain
@@ -37,10 +11,20 @@ const (
 
 // 面板全局变量
 var (
-	Key     string
-	Root    string
-	Version string
-	Locale  string
-	IsCli   bool
-	Status  = StatusNormal
+	Key    string         // 密钥
+	Root   string         // 根目录
+	Locale string         // 语言
+	IsCli  bool           // 是否命令行
+	Status = StatusNormal // 面板状态
+)
+
+// 自动注入
+var (
+	Version    = "0.0.0"
+	BuildTime  string
+	CommitHash string
+	GoVersion  string
+	BuildID    string
+	BuildUser  string
+	BuildHost  string
 )

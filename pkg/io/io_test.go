@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/go-rat/utils/env"
+	"github.com/libtnb/utils/env"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -67,8 +67,6 @@ func (s *IOTestSuite) TestCompress() {
 	s.NoError(err)
 	err = Compress(abs, src, filepath.Join(abs, "compress_test.tar"))
 	s.NoError(err)
-	err = Compress(abs, src, filepath.Join(abs, "compress_test.gz"))
-	s.NoError(err)
 	err = Compress(abs, src, filepath.Join(abs, "compress_test.tar.gz"))
 	s.NoError(err)
 	err = Compress(abs, src, filepath.Join(abs, "compress_test.tgz"))
@@ -95,8 +93,6 @@ func (s *IOTestSuite) TestUnCompress() {
 	err = Compress(abs, src, filepath.Join(abs, "uncompress_test.bz2"))
 	s.NoError(err)
 	err = Compress(abs, src, filepath.Join(abs, "uncompress_test.tar"))
-	s.NoError(err)
-	err = Compress(abs, src, filepath.Join(abs, "uncompress_test.gz"))
 	s.NoError(err)
 	err = Compress(abs, src, filepath.Join(abs, "uncompress_test.tar.gz"))
 	s.NoError(err)
@@ -129,14 +125,6 @@ func (s *IOTestSuite) TestUnCompress() {
 	s.NoError(err)
 	s.Equal("File 1", data)
 	data, err = Read("testdata/uncompressed_tar/uncompress_test2.txt")
-	s.NoError(err)
-	s.Equal("File 2", data)
-	err = UnCompress(filepath.Join(abs, "uncompress_test.gz"), filepath.Join(abs, "uncompressed_gz"))
-	s.NoError(err)
-	data, err = Read("testdata/uncompressed_gz/uncompress_test1.txt")
-	s.NoError(err)
-	s.Equal("File 1", data)
-	data, err = Read("testdata/uncompressed_gz/uncompress_test2.txt")
 	s.NoError(err)
 	s.Equal("File 2", data)
 	err = UnCompress(filepath.Join(abs, "uncompress_test.tar.gz"), filepath.Join(abs, "uncompressed_tar_gz"))
@@ -190,8 +178,6 @@ func (s *IOTestSuite) TestListCompress() {
 	s.NoError(err)
 	err = Compress(abs, src, filepath.Join(abs, "list_archive_test.tar"))
 	s.NoError(err)
-	err = Compress(abs, src, filepath.Join(abs, "list_archive_test.gz"))
-	s.NoError(err)
 	err = Compress(abs, src, filepath.Join(abs, "list_archive_test.tar.gz"))
 	s.NoError(err)
 	err = Compress(abs, src, filepath.Join(abs, "list_archive_test.tgz"))
@@ -208,9 +194,6 @@ func (s *IOTestSuite) TestListCompress() {
 	s.NoError(err)
 	s.Len(list, 2)
 	list, err = ListCompress(filepath.Join(abs, "list_archive_test.tar"))
-	s.NoError(err)
-	s.Len(list, 2)
-	list, err = ListCompress(filepath.Join(abs, "list_archive_test.gz"))
 	s.NoError(err)
 	s.Len(list, 2)
 	list, err = ListCompress(filepath.Join(abs, "list_archive_test.tar.gz"))
@@ -231,17 +214,11 @@ func (s *IOTestSuite) TestListCompress() {
 
 func (s *IOTestSuite) TestRemoveDeletesFileOrDirectory() {
 	path := "testdata/remove_test"
-	s.NoError(Mkdir(path, 0755))
+	s.NoError(os.MkdirAll(path, 0755))
 	s.DirExists(path)
 
 	s.NoError(Remove(path))
 	s.NoDirExists(path)
-}
-
-func (s *IOTestSuite) TestMkdirCreatesDirectory() {
-	path := "testdata/mkdir_test"
-	s.NoError(Mkdir(path, 0755))
-	s.DirExists(path)
 }
 
 func (s *IOTestSuite) TestChmodChangesPermissions() {
@@ -280,13 +257,13 @@ func (s *IOTestSuite) TestExistsReturnsFalseForNonExistingPath() {
 
 func (s *IOTestSuite) TestEmptyReturnsTrueForEmptyDirectory() {
 	path := "testdata/empty_test"
-	s.NoError(Mkdir(path, 0755))
+	s.NoError(os.MkdirAll(path, 0755))
 	s.True(Empty(path))
 }
 
 func (s *IOTestSuite) TestEmptyReturnsFalseForNonEmptyDirectory() {
 	path := "testdata/nonempty_test"
-	s.NoError(Mkdir(path, 0755))
+	s.NoError(os.MkdirAll(path, 0755))
 	s.NoError(Write(filepath.Join(path, "file.txt"), "test", 0644))
 	s.False(Empty(path))
 }
@@ -321,27 +298,9 @@ func (s *IOTestSuite) TestSizeReturnsCorrectSize() {
 	s.Equal(int64(len(data)), size)
 }
 
-func (s *IOTestSuite) TestTempDirCreatesTemporaryDirectory() {
-	dir, err := TempDir("tempdir_test")
-	s.NoError(err)
-	s.DirExists(dir)
-	s.NoError(Remove(dir))
-}
-
-func (s *IOTestSuite) TestReadDirReturnsDirectoryEntries() {
-	path := "testdata/readdir_test"
-	s.NoError(Mkdir(path, 0755))
-	s.NoError(Write(filepath.Join(path, "file1.txt"), "test", 0644))
-	s.NoError(Write(filepath.Join(path, "file2.txt"), "test", 0644))
-
-	entries, err := ReadDir(path)
-	s.NoError(err)
-	s.Len(entries, 2)
-}
-
 func (s *IOTestSuite) TestIsDirReturnsTrueForDirectory() {
 	path := "testdata/isdir_test"
-	s.NoError(Mkdir(path, 0755))
+	s.NoError(os.MkdirAll(path, 0755))
 	s.True(IsDir(path))
 }
 

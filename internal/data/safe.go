@@ -6,11 +6,11 @@ import (
 
 	"github.com/spf13/cast"
 
-	"github.com/TheTNB/panel/internal/biz"
-	"github.com/TheTNB/panel/pkg/firewall"
-	"github.com/TheTNB/panel/pkg/os"
-	"github.com/TheTNB/panel/pkg/shell"
-	"github.com/TheTNB/panel/pkg/systemctl"
+	"github.com/acepanel/panel/internal/biz"
+	"github.com/acepanel/panel/pkg/firewall"
+	"github.com/acepanel/panel/pkg/os"
+	"github.com/acepanel/panel/pkg/shell"
+	"github.com/acepanel/panel/pkg/systemctl"
 )
 
 type safeRepo struct {
@@ -24,7 +24,6 @@ func NewSafeRepo() biz.SafeRepo {
 	} else {
 		ssh = "ssh"
 	}
-
 	return &safeRepo{
 		ssh: ssh,
 	}

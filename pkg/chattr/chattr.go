@@ -1,3 +1,5 @@
+//go:build !windows
+
 // Package chattr https://github.com/g0rbe/go-chattr/pull/3
 package chattr
 

@@ -1,25 +1,21 @@
-import type { GlobalThemeOverrides, NDateLocale, NLocale } from 'naive-ui'
-import { darkTheme, dateEnUS, dateZhCN, enUS, zhCN } from 'naive-ui'
+import type { NDateLocale, NLocale } from 'naive-ui'
+import { darkTheme, dateEnUS, dateJaJP, dateZhCN, dateZhTW, enUS, jaJP, zhCN, zhTW } from 'naive-ui'
 import type { BuiltInGlobalTheme } from 'naive-ui/es/themes/interface'
 
-import { defaultSettings, getNaiveThemeOverrides } from './helpers'
+import { defaultSettings } from './helpers'
 
 type ThemeState = Theme.Setting
 
 const locales: Record<string, { locale: NLocale; dateLocale: NDateLocale }> = {
+  en: { locale: enUS, dateLocale: dateEnUS },
   zh_CN: { locale: zhCN, dateLocale: dateZhCN },
-  en: { locale: enUS, dateLocale: dateEnUS }
+  zh_TW: { locale: zhTW, dateLocale: dateZhTW },
+  ja_JP: { locale: jaJP, dateLocale: dateJaJP }
 }
 
 export const useThemeStore = defineStore('theme', {
   state: (): ThemeState => defaultSettings(),
   getters: {
-    naiveThemeOverrides(): GlobalThemeOverrides {
-      return getNaiveThemeOverrides({
-        primary: this.primaryColor,
-        ...this.otherColor
-      })
-    },
     naiveTheme(): BuiltInGlobalTheme | undefined {
       return this.darkMode ? darkTheme : undefined
     },
@@ -49,10 +45,6 @@ export const useThemeStore = defineStore('theme', {
     /** 设置 折叠侧边栏 */
     setCollapsed(collapsed: boolean) {
       this.sider.collapsed = collapsed
-    },
-    /** 设置主题色 */
-    setPrimaryColor(color: string) {
-      this.primaryColor = color
     },
     /** 设置语言 */
     setLocale(locale: string) {
